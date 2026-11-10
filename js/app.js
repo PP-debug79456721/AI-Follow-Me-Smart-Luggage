@@ -1,4 +1,5 @@
-
+import { initOwnerRegistration }
+  from "./owner-registration.js";
 import {
   startCamera,
   stopCamera,
@@ -121,3 +122,4 @@ stopBtn.addEventListener("click", () => {
 video.addEventListener("error", () => {
   setStatus("cameraStatus", "VIDEO ERROR");
 });
+initOwnerRegistration();
