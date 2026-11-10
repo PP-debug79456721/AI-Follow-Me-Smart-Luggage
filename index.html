@@ -1,0 +1,116 @@
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
+
+  <meta name="theme-color" content="#101820">
+
+  <title>AI Follow-Me Smart Luggage</title>
+
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+
+<body>
+
+  <header class="header">
+    <div>
+      <h1>AI FOLLOW-ME</h1>
+      <p>SMART AUTONOMOUS LUGGAGE</p>
+    </div>
+
+    <span class="system-badge" id="systemStatus">
+      SYSTEM READY
+    </span>
+  </header>
+
+  <main class="dashboard">
+
+    <section class="camera-panel">
+      <div class="panel-heading">
+        <h2>CAMERA VIEW</h2>
+        <span id="cameraStatus">DISCONNECTED</span>
+      </div>
+
+      <div class="video-container">
+
+        <video id="camera"
+               autoplay
+               muted
+               playsinline></video>
+
+        <div class="camera-overlay">
+          <span>FORWARD CAMERA</span>
+          <span id="fpsValue">0 FPS</span>
+        </div>
+
+      </div>
+
+      <div class="camera-info">
+        <span id="resolution">Resolution: --</span>
+        <span id="cameraType">Camera: Rear</span>
+      </div>
+
+      <div class="controls">
+        <button id="startBtn">
+          START CAMERA
+        </button>
+
+        <button id="stopBtn" disabled>
+          STOP CAMERA
+        </button>
+      </div>
+    </section>
+
+    <section class="status-panel">
+
+      <h2>SYSTEM DASHBOARD</h2>
+
+      <div class="status-grid">
+
+        <div class="status-card">
+          <span>OWNER</span>
+          <strong id="ownerStatus">NOT VERIFIED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>OBSTACLE</span>
+          <strong id="obstacleStatus">NOT ANALYZED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>DISTANCE</span>
+          <strong id="distanceStatus">NO SENSOR</strong>
+        </div>
+
+        <div class="status-card">
+          <span>AI MODEL</span>
+          <strong id="aiStatus">NOT LOADED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>ESP32</span>
+          <strong id="espStatus">DISCONNECTED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>MOTOR COMMAND</span>
+          <strong id="motorStatus">STOP</strong>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <footer>
+    AI Follow-Me Smart Luggage | Development Phase 1
+  </footer>
+
+  <script type="module" src="./js/app.js"></script>
+
+</body>
+</html>
