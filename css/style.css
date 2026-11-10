@@ -176,4 +176,87 @@ footer {
   .header h1 {
     font-size: 18px;
   }
+  
+.registration-panel {
+  grid-column: 1 / -1;
+  background: #1b2935;
+  border: 1px solid #314454;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.registration-panel h2 {
+  font-size: 15px;
+}
+
+.registration-description {
+  color: #91a4b3;
+  font-size: 12px;
+}
+
+.registration-panel > label:not(.consent-row) {
+  display: block;
+  color: #91a4b3;
+  font-size: 12px;
+  margin: 14px 0 6px;
+}
+
+.registration-panel input[type="text"],
+.registration-panel select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #314454;
+  border-radius: 8px;
+  background: #101820;
+  color: white;
+}
+
+.sample-count {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.sample-count div {
+  background: #101820;
+  border: 1px solid #314454;
+  padding: 14px;
+  border-radius: 10px;
+}
+
+.sample-count span {
+  display: block;
+  color: #91a4b3;
+  font-size: 10px;
+}
+
+.sample-count strong {
+  display: block;
+  color: #00ffcc;
+  margin-top: 8px;
+}
+
+#registrationMessage {
+  color: #00ffcc;
+  font-size: 12px;
+}
+
+.consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #c1ccd5;
+  font-size: 12px;
+  margin: 18px 0;
+}
+
+.consent-row input {
+  margin-top: 2px;
+}
+
+.danger-button {
+  background: #a93636;
+  color: white;
+  width: 100%;
 }
