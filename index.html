@@ -34,7 +34,7 @@
         <span id="cameraStatus">DISCONNECTED</span>
       </div>
 
-      <div class="video-container">
+      <div class="video-container"><canvas id="aiCanvas"></canvas>
 
         <video id="camera"
                autoplay
@@ -122,7 +122,16 @@
       <h2>SYSTEM DASHBOARD</h2>
 
       <div class="status-grid">
+        
+        <div class="status-card">
+          <span>FACE DETECTION</span>
+          <strong id="faceAIStatus">NOT RUNNING</strong>
+        </div>
 
+        <div class="status-card">
+          <span>PERSON DETECTION</span>
+          <strong id="personAIStatus">NOT RUNNING</strong>
+        </div>
         <div class="status-card">
           <span>OWNER</span>
           <strong id="ownerStatus">NOT VERIFIED</strong>

@@ -1,3 +1,8 @@
+import {
+  initOwnerAI,
+  startOwnerAI,
+  stopOwnerAI
+} from "./ai-owner.js";
 import { initOwnerRegistration }
   from "./owner-registration.js";
 import {
@@ -70,7 +75,10 @@ startBtn.addEventListener("click", async () => {
   try {
 
     await startCamera();
-
+    
+    await initOwnerAI();
+    startOwnerAI();
+    
     const settings = getCameraInfo();
 
     setStatus("cameraStatus", "CONNECTED");
@@ -109,6 +117,7 @@ stopBtn.addEventListener("click", () => {
 
   stopCamera();
   stopFpsMonitor();
+  stopOwnerAI();
 
   setStatus("cameraStatus", "DISCONNECTED");
   setStatus("resolution", "Resolution: --");
@@ -122,4 +131,26 @@ stopBtn.addEventListener("click", () => {
 video.addEventListener("error", () => {
   setStatus("cameraStatus", "VIDEO ERROR");
 });
+
 initOwnerRegistration();
+
+function determineOwnerState({
+  faceMatch,
+  reidMatch,
+  trackConsistent
+}) {
+
+  if (faceMatch && trackConsistent) {
+    return "OWNER_VERIFIED";
+  }
+
+  if (reidMatch && trackConsistent) {
+    return "OWNER_TRACKING";
+  }
+
+  if (!trackConsistent) {
+    return "IDENTITY_UNCERTAIN";
+  }
+
+  return "OWNER_LOST";
+}
