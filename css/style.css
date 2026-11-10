@@ -270,9 +270,10 @@ footer {
 }
 
 .video-container video {
-  object-fit: contain;
+    object-fit: contain;
 }
 
 .video-container canvas {
-  pointer-events: none;
+    pointer-events: none;
+    /* สามารถใส่ properties อื่นๆ เพิ่มเติมตรงนี้ได้ถ้ามี */
 }
