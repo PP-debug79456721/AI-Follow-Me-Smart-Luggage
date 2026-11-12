@@ -5,6 +5,24 @@ import {
   ObjectDetector
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
 
+import {
+  initializeEmbeddingModels
+} from "./embedding/owner-embedding.js";
+
+let aiInitialized = false;
+
+export async function initOwnerAI() {
+
+  if (aiInitialized) return;
+
+  // โหลดโมเดล Face Detector และ Person Detector
+  // จากระบบเดิมของ Phase 3
+
+  await initializeEmbeddingModels();
+
+  aiInitialized = true;
+}
+
 const video = document.getElementById("camera");
 const canvas = document.getElementById("aiCanvas");
 const ctx = canvas.getContext("2d");

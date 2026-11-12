@@ -1,6 +1,6 @@
 
 const DB_NAME = "SmartLuggageOwnerDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const video = document.getElementById("camera");
 
