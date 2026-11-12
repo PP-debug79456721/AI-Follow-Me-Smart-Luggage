@@ -176,7 +176,8 @@ footer {
   .header h1 {
     font-size: 18px;
   }
-  
+}
+
 .registration-panel {
   grid-column: 1 / -1;
   background: #1b2935;
@@ -270,12 +271,62 @@ footer {
 }
 
 .video-container video {
-    object-fit: contain;
+  object-fit: contain;
+  z-index: 1;
 }
 
+/* Canvas must sit above the video, and use the same fit as the video
+   so detection boxes line up with the image. */
 .video-container canvas {
-    pointer-events: none;
-    /* สามารถใส่ properties อื่นๆ เพิ่มเติมตรงนี้ได้ถ้ามี */
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 2;
 }
 
+.video-container .camera-overlay {
+  z-index: 3;
 }
+
+/* AI readiness panel */
+.readiness-panel {
+  grid-column: 1 / -1;
+  background: #1b2935;
+  border: 1px solid #314454;
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.readiness-panel h2 {
+  font-size: 15px;
+}
+
+.readiness-note {
+  color: #91a4b3;
+  font-size: 12px;
+  margin: 6px 0 12px;
+}
+
+.readiness-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.readiness-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid #263644;
+  font-size: 12px;
+  color: #c1ccd5;
+}
+
+.readiness-list li strong {
+  text-align: right;
+  color: #b8c2ca;
+}
+
+.readiness-list li strong.ok { color: #00ffcc; }
+.readiness-list li strong.warn { color: #ffcc66; }
+.readiness-list li strong.bad { color: #ff7a7a; }

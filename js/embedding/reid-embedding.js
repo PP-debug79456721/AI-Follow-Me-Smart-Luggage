@@ -16,7 +16,7 @@ let initializationPromise = null;
 // Initialize Person Re-ID Model
 // --------------------------------------------------
 
-export async function initReIDEmbedding(modelPath) {
+export async function initReIDEmbedding(modelPath, options = {}) {
 
   if (reidSession) {
     return reidSession;
@@ -34,7 +34,7 @@ export async function initReIDEmbedding(modelPath) {
 
     try {
 
-      reidSession = await loadEmbeddingModel(modelPath);
+      reidSession = await loadEmbeddingModel(modelPath, options);
 
       console.log("Person Re-ID initialized.");
 

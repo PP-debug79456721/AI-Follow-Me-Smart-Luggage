@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "models": {
+    "face": {
+      "status": "AVAILABLE",
+      "file": "models/face/face-recognition.onnx",
+      "sizeBytes": 136619444,
+      "sha256": null,
+      "source": "https://huggingface.co/garavv/arcface-onnx (file: arc.onnx)",
+      "license": "UNVERIFIED - no license is declared on the model page; do not publish or upload to a public release until confirmed",
+      "release": null,
+      "input": { "name": "input_1", "layout": "NHWC", "shape": ["N", 112, 112, 3] },
+      "output": { "name": "embedding", "shape": ["N", 512] }
+    },
+    "reid": {
+      "status": "NO_MODEL",
+      "file": "models/person-reid/person-reid.onnx",
+      "note": "The local file is 0 bytes and fails the ONNX check. Replace it with a verified Re-ID embedding model, then set status to AVAILABLE and fill sizeBytes and sha256."
+    }
+  }
+}

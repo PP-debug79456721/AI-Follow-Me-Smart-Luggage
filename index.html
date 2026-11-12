@@ -50,7 +50,7 @@
 
       <div class="camera-info">
         <span id="resolution">Resolution: --</span>
-        <span id="cameraType">Camera: Rear</span>
+        <span id="cameraType">Camera: --</span>
       </div>
 
       <div class="controls">
@@ -117,6 +117,43 @@
 
 </section>
 
+    <section class="readiness-panel">
+
+      <h2>AI READINESS</h2>
+      <p class="readiness-note">
+        แสดงสถานะจริงของแต่ละส่วน ระบบยังไม่ยืนยันว่าบุคคลใดเป็นเจ้าของ
+        จนกว่าโมเดลจดจำจะผ่านการทดสอบ inference
+      </p>
+
+      <ul class="readiness-list">
+        <li>
+          <span>Person detector (MediaPipe)</span>
+          <strong id="readyPerson">NOT LOADED</strong>
+        </li>
+        <li>
+          <span>Face detector (MediaPipe)</span>
+          <strong id="readyFace">NOT LOADED</strong>
+        </li>
+        <li>
+          <span>Face recognition model (ArcFace)</span>
+          <strong id="readyFaceModel">NOT LOADED</strong>
+        </li>
+        <li>
+          <span>Person Re-ID model (OSNet)</span>
+          <strong id="readyReidModel" class="warn">NO MODEL</strong>
+        </li>
+        <li>
+          <span>Owner embeddings</span>
+          <strong id="readyEmbeddings">NOT GENERATED</strong>
+        </li>
+        <li>
+          <span>Recognition inference test</span>
+          <strong id="readyInference">NOT TESTED</strong>
+        </li>
+      </ul>
+
+    </section>
+
     <section class="status-panel">
 
       <h2>SYSTEM DASHBOARD</h2>
@@ -134,7 +171,7 @@
         </div>
         <div class="status-card">
           <span>OWNER</span>
-          <strong id="ownerStatus">NOT VERIFIED</strong>
+          <strong id="ownerStatus">ยังไม่ยืนยันตัวตน</strong>
         </div>
 
         <div class="status-card">

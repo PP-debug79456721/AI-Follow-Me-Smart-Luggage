@@ -25,6 +25,15 @@ function setStatus(id, value) {
   document.getElementById(id).textContent = value;
 }
 
+function describeFacingMode(facingMode) {
+
+  if (facingMode === "environment") return "Rear";
+  if (facingMode === "user") return "Front";
+
+  // Browser did not report which camera is in use.
+  return "Unknown";
+}
+
 function startFpsMonitor() {
 
   cancelAnimationFrame(animationId);
@@ -75,10 +84,7 @@ startBtn.addEventListener("click", async () => {
   try {
 
     await startCamera();
-    
-    await initOwnerAI();
-    startOwnerAI();
-    
+
     const settings = getCameraInfo();
 
     setStatus("cameraStatus", "CONNECTED");
@@ -90,7 +96,7 @@ startBtn.addEventListener("click", async () => {
 
     setStatus(
       "cameraType",
-      `Camera: ${settings.facingMode || "Rear"}`
+      `Camera: ${describeFacingMode(settings.facingMode)}`
     );
 
     setStatus("systemStatus", "CAMERA READY");
@@ -110,6 +116,25 @@ startBtn.addEventListener("click", async () => {
     setStatus("systemStatus", error.message);
 
     startBtn.disabled = false;
+    return;
+  }
+
+  // AI is started after the camera. If the AI cannot load, the camera
+  // and owner registration keep working and the AI status says so.
+  try {
+
+    await initOwnerAI();
+
+    // The user may have pressed STOP while the detectors were loading.
+    if (video.srcObject) {
+      startOwnerAI();
+    }
+
+  } catch (error) {
+
+    console.error("AI not ready:", error);
+
+    setStatus("systemStatus", "CAMERA READY - AI NOT READY");
   }
 });
 
@@ -121,7 +146,7 @@ stopBtn.addEventListener("click", () => {
 
   setStatus("cameraStatus", "DISCONNECTED");
   setStatus("resolution", "Resolution: --");
-  setStatus("cameraType", "Camera: Rear");
+  setStatus("cameraType", "Camera: --");
   setStatus("systemStatus", "SYSTEM READY");
 
   startBtn.disabled = false;
