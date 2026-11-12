@@ -5,6 +5,12 @@ import {
 } from "./ai-owner.js";
 import { initOwnerRegistration }
   from "./owner-registration.js";
+import { initPersonSelection }
+  from "./person-select-ui.js";
+import {
+  initFaceCropExport,
+  setFaceCropEnabled
+} from "./face-crop-export.js";
 import {
   startCamera,
   stopCamera,
@@ -128,6 +134,7 @@ startBtn.addEventListener("click", async () => {
     // The user may have pressed STOP while the detectors were loading.
     if (video.srcObject) {
       startOwnerAI();
+      setFaceCropEnabled(true);
     }
 
   } catch (error) {
@@ -143,6 +150,7 @@ stopBtn.addEventListener("click", () => {
   stopCamera();
   stopFpsMonitor();
   stopOwnerAI();
+  setFaceCropEnabled(false);
 
   setStatus("cameraStatus", "DISCONNECTED");
   setStatus("resolution", "Resolution: --");
@@ -158,6 +166,8 @@ video.addEventListener("error", () => {
 });
 
 initOwnerRegistration();
+initFaceCropExport();
+initPersonSelection();
 
 function determineOwnerState({
   faceMatch,

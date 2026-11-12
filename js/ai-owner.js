@@ -5,6 +5,16 @@ import {
   ObjectDetector
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
 
+// image-preprocessor.js has no external imports, so importing it
+// statically cannot make this module fail to load.
+import {
+  alignFaceToCanvas,
+  mediapipeKeypointsToPixels
+} from "./embedding/image-preprocessor.js";
+
+// Pure logic with no external imports (same reason as above).
+import { createPersonTracker } from "./person-tracker.js";
+
 const MEDIAPIPE_WASM_URL =
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
 
@@ -30,7 +40,16 @@ let personDetector = null;
 let initPromise = null;
 let embeddingPromise = null;
 let rafId = null;
-let lastPersons = [];
+
+// Follows the box the user tapped. It never identifies anyone.
+const tracker = createPersonTracker();
+let trackingListener = null;
+let lastNotified = "";
+let lastFrameTimestamp = 0;
+
+// Face boxes from the latest detection, redrawn on every animation frame
+// together with the (smoothly moving) person boxes.
+let lastFaces = [];
 
 let running = false;
 let lastInference = 0;
@@ -38,6 +57,247 @@ let lastPersonInference = 0;
 
 const INFERENCE_INTERVAL = 250;
 const PERSON_INTERVAL = 500;
+
+// Face recognition is not part of Phase C. Keep false until a face model
+// with a confirmed license and acceptable size has been approved.
+const LOAD_RECOGNITION_MODELS = false;
+
+// --------------------------------------------------
+// Camera-covered hint (for the LOST reason text only)
+// --------------------------------------------------
+
+// A covered lens gives a very dark frame or one with almost no detail.
+// These limits are a heuristic (luma 0-255 on a 32x24 thumbnail) and are
+// NOT tuned on real devices yet. The result only changes the wording of
+// the LOST message; it never selects, matches or identifies anyone.
+const BLOCKED_MAX_MEAN = 35;
+const BLOCKED_MAX_STD = 6;
+
+const statsCanvas = document.createElement("canvas");
+statsCanvas.width = 32;
+statsCanvas.height = 24;
+const statsCtx = statsCanvas.getContext("2d", { willReadFrequently: true });
+
+function looksBlocked() {
+
+  if (!statsCtx) return false;
+
+  try {
+
+    statsCtx.drawImage(video, 0, 0, statsCanvas.width, statsCanvas.height);
+
+    const data = statsCtx.getImageData(
+      0, 0, statsCanvas.width, statsCanvas.height
+    ).data;
+
+    const count = data.length / 4;
+    let sum = 0;
+    let sumSq = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const luma = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      sum += luma;
+      sumSq += luma * luma;
+    }
+
+    const mean = sum / count;
+    const std = Math.sqrt(Math.max(0, sumSq / count - mean * mean));
+
+    return mean <= BLOCKED_MAX_MEAN || std <= BLOCKED_MAX_STD;
+
+  } catch {
+    return false;
+  }
+}
+
+// --------------------------------------------------
+// Aligned Face Crop Export (for offline model testing)
+// --------------------------------------------------
+
+const CROP_SIZE = 112;
+const CROP_WAIT_MS = 4000;
+
+// A face narrower than this is upscaled to 112 px and looks blurry,
+// which gives misleading similarity numbers when testing a model.
+const CROP_MIN_FACE_WIDTH_PX = 80;
+
+/*
+ * code: NOT_RUNNING | NO_FACE_DETECTOR | BUSY | NO_FACE |
+ *       BAD_KEYPOINTS | ENCODE_FAILED | CANCELLED
+ */
+export class FaceCropError extends Error {
+
+  constructor(code, message) {
+    super(message);
+    this.name = "FaceCropError";
+    this.code = code;
+  }
+}
+
+let cropRequest = null;
+
+/*
+ * Asks for an aligned 112x112 PNG of the largest face in the next frame
+ * that contains one. The detection result and the image come from the same
+ * frame, and the crop is made by the same alignFaceToCanvas() that the
+ * recognition pipeline uses, so exported files match what a model would see.
+ *
+ * Resolves with { blob, width, height, score, faceCount, faceWidthPx,
+ * warnings } where warnings may contain LOW_RESOLUTION and MULTIPLE_FACES.
+ * Waits up to CROP_WAIT_MS for a face, then rejects with NO_FACE.
+ * The image is never stored here; the caller decides what to do with it.
+ */
+export function requestAlignedFaceCrop() {
+
+  if (!running) {
+    return Promise.reject(new FaceCropError(
+      "NOT_RUNNING",
+      "The camera and face detection are not running."
+    ));
+  }
+
+  if (!faceDetector) {
+    return Promise.reject(new FaceCropError(
+      "NO_FACE_DETECTOR",
+      "The face detector is not available."
+    ));
+  }
+
+  if (cropRequest) {
+    return Promise.reject(new FaceCropError(
+      "BUSY",
+      "A face capture is already in progress."
+    ));
+  }
+
+  return new Promise((resolve, reject) => {
+    cropRequest = { resolve, reject, startTimestamp: null };
+  });
+}
+
+function settleCropRequest(error, result) {
+
+  const request = cropRequest;
+
+  cropRequest = null;
+
+  if (!request) return;
+
+  if (error) {
+    request.reject(error);
+  } else {
+    request.resolve(result);
+  }
+}
+
+function cancelCropRequest() {
+
+  settleCropRequest(
+    new FaceCropError("CANCELLED", "Capture was cancelled."),
+    null
+  );
+}
+
+/* Called from processFrame with the detections of the current frame. */
+function serveCropRequest(faceList, timestamp, width, height) {
+
+  const request = cropRequest;
+
+  if (!request) return;
+
+  if (request.startTimestamp === null) {
+    request.startTimestamp = timestamp;
+  }
+
+  if (faceList.length === 0) {
+
+    if (timestamp - request.startTimestamp >= CROP_WAIT_MS) {
+      settleCropRequest(new FaceCropError(
+        "NO_FACE",
+        "No face was detected."
+      ), null);
+    }
+
+    return;
+  }
+
+  const area = face =>
+    (face.boundingBox?.width ?? 0) * (face.boundingBox?.height ?? 0);
+
+  const face = faceList.reduce(
+    (best, current) => area(current) > area(best) ? current : best
+  );
+
+  let aligned;
+
+  try {
+
+    if (!Array.isArray(face.keypoints) || face.keypoints.length < 4) {
+      throw new Error("The detector returned no facial keypoints.");
+    }
+
+    // alignFaceToCanvas rejects inconsistent keypoints
+    // (for example a mouth above the eyes).
+    aligned = alignFaceToCanvas(
+      video,
+      mediapipeKeypointsToPixels(face.keypoints, width, height),
+      CROP_SIZE
+    );
+
+  } catch (error) {
+
+    settleCropRequest(new FaceCropError(
+      "BAD_KEYPOINTS",
+      error.message
+    ), null);
+
+    return;
+  }
+
+  const faceWidthPx = face.boundingBox?.width ?? 0;
+  const score = face.categories?.[0]?.score ?? 0;
+
+  const warnings = [];
+
+  if (faceWidthPx < CROP_MIN_FACE_WIDTH_PX) warnings.push("LOW_RESOLUTION");
+  if (faceList.length > 1) warnings.push("MULTIPLE_FACES");
+
+  // Detach the request before the asynchronous encoding starts so a new
+  // request or a STOP cannot interfere with this one.
+  cropRequest = null;
+
+  try {
+
+    aligned.toBlob(blob => {
+
+      if (!blob) {
+        request.reject(new FaceCropError(
+          "ENCODE_FAILED",
+          "Could not encode the image."
+        ));
+        return;
+      }
+
+      request.resolve({
+        blob,
+        width: CROP_SIZE,
+        height: CROP_SIZE,
+        score,
+        faceCount: faceList.length,
+        faceWidthPx: Math.round(faceWidthPx),
+        warnings
+      });
+
+    }, "image/png");
+
+  } catch (error) {
+
+    request.reject(new FaceCropError(
+      "ENCODE_FAILED",
+      error.message
+    ));
+  }
+}
 
 function setReady(element, text, level) {
 
@@ -64,11 +324,16 @@ export function initOwnerAI() {
     });
   }
 
-  // Embedding models are large, so they load after the detectors have
-  // settled and in the background. They never block or break the
-  // camera, the detectors or owner registration.
-  const startEmbeddings = () => { loadEmbeddingModels(); };
-  initPromise.then(startEmbeddings, startEmbeddings);
+  // Phase C does not use face recognition: the face / Re-ID embedding
+  // models are NOT loaded (no ONNX Runtime, no model download, no
+  // manifest request). loadEmbeddingModels() is kept for a later phase
+  // and runs only when LOAD_RECOGNITION_MODELS is set to true.
+  if (LOAD_RECOGNITION_MODELS) {
+    const startEmbeddings = () => { loadEmbeddingModels(); };
+    initPromise.then(startEmbeddings, startEmbeddings);
+  } else {
+    setReady(readyFaceModel, "OFF (NOT USED IN PHASE C)", "");
+  }
 
   return initPromise;
 }
@@ -275,21 +540,87 @@ export function startOwnerAI() {
   running = true;
   lastInference = 0;
   lastPersonInference = 0;
-  lastPersons = [];
+
+  tracker.reset();
+  lastFaces = [];
+  notifyTracking(true);
 
   rafId = requestAnimationFrame(processFrame);
 }
 
+// --------------------------------------------------
+// Person selection (tap to follow a box)
+// --------------------------------------------------
+
+/* Receives a tracking snapshot whenever it changes. */
+export function setPersonTrackingListener(listener) {
+
+  trackingListener = listener;
+  notifyTracking(true);
+}
+
+export function getPersonTrackingSnapshot() {
+  return tracker.getSnapshot();
+}
+
+function notifyTracking(force = false) {
+
+  if (!trackingListener) return;
+
+  const snapshot = tracker.getSnapshot();
+  const key = JSON.stringify(snapshot);
+
+  if (!force && key === lastNotified) return;
+
+  lastNotified = key;
+
+  try {
+    trackingListener(snapshot);
+  } catch (error) {
+    console.error("Tracking listener failed:", error);
+  }
+}
+
+/*
+ * Selects the person box at a point given in VIDEO pixels.
+ * Returns { ok: true, id } or { ok: false, reason } with reason
+ * NOT_RUNNING | NO_PERSON_DETECTOR | NO_PERSON_AT_POINT.
+ * This only chooses a box to follow; it does not verify who the person is.
+ */
+export function selectPersonAt(x, y) {
+
+  if (!running) return { ok: false, reason: "NOT_RUNNING" };
+
+  if (!personDetector) return { ok: false, reason: "NO_PERSON_DETECTOR" };
+
+  const result = tracker.selectAt(x, y, lastFrameTimestamp);
+
+  // The highlight appears on the next processed frame (<= 250 ms).
+  notifyTracking();
+
+  return result;
+}
+
+export function clearPersonSelection() {
+
+  tracker.clearSelection(lastFrameTimestamp);
+
+  notifyTracking();
+}
 export function stopOwnerAI() {
 
   running = false;
+
+  cancelCropRequest();
 
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
 
-  lastPersons = [];
+  tracker.stop();
+  lastFaces = [];
+  notifyTracking();
 
   ctx.clearRect(
     0, 0, canvas.width, canvas.height
@@ -319,10 +650,15 @@ export function disposeOwnerAI() {
 
 window.addEventListener("pagehide", disposeOwnerAI);
 
-function drawBox(box, label, color) {
+function drawBox(box, label, color, { dashed = false, thick = false } = {}) {
+
+  // The canvas is drawn at video resolution (e.g. 640 px) but shown much
+  // smaller on a phone, so the text size follows the canvas width.
+  const fontSize = Math.max(13, Math.round(canvas.width / 32));
 
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = thick ? 4 : 2;
+  ctx.setLineDash(dashed ? [10, 6] : []);
 
   ctx.strokeRect(
     box.originX,
@@ -331,14 +667,29 @@ function drawBox(box, label, color) {
     box.height
   );
 
-  ctx.fillStyle = color;
-  ctx.font = "13px Arial";
+  ctx.setLineDash([]);
 
-  ctx.fillText(
-    label,
-    box.originX,
-    Math.max(14, box.originY - 6)
+  ctx.font = `${fontSize}px Arial`;
+
+  const textWidth = ctx.measureText(label).width;
+  const padding = 3;
+
+  // Keep the label inside the image.
+  const x = Math.max(
+    0,
+    Math.min(box.originX, canvas.width - textWidth - padding * 2)
   );
+
+  const above = box.originY - fontSize - padding * 2;
+  const y = above >= 0 ? above : box.originY;
+
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, textWidth + padding * 2, fontSize + padding * 2);
+
+  ctx.fillStyle = "#05090d";
+  ctx.textBaseline = "top";
+  ctx.fillText(label, x + padding, y + padding);
+  ctx.textBaseline = "alphabetic";
 }
 
 function scheduleNextFrame() {
@@ -348,33 +699,81 @@ function scheduleNextFrame() {
   }
 }
 
-function drawPersons() {
+// Every person box says it is not identity-verified, selected or not.
+function drawPersons(now) {
 
-  for (const person of lastPersons) {
+  for (const person of tracker.getDrawables(now)) {
 
-    const score =
-      person.categories.find(
-        category => category.categoryName === "person"
-      )?.score ?? 0;
+    const percent = `${Math.round(person.score * 100)}%`;
+
+    if (person.selected) {
+
+      drawBox(
+        person.box,
+        person.searching
+          ? `กำลังค้นหา #${person.id} · ${UNVERIFIED_TEXT}`
+          : `ติดตาม #${person.id} ${percent} · ${UNVERIFIED_TEXT}`,
+        "#ffb020",
+        { dashed: person.searching, thick: true }
+      );
+
+    } else {
+
+      drawBox(
+        person.box,
+        `PERSON ${percent} · ${UNVERIFIED_TEXT}`,
+        "#b18cff"
+      );
+    }
+  }
+}
+
+/*
+ * Redraws everything on the overlay. Person boxes move smoothly toward their
+ * latest detection, so this runs on every animation frame, not only when
+ * the detectors run.
+ */
+function renderOverlay(now) {
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (const face of lastFaces) {
 
     drawBox(
-      person.boundingBox,
-      `PERSON ${Math.round(score * 100)}%`,
-      "#b18cff"
+      face.box,
+      `FACE ${Math.round(face.score * 100)}%`,
+      "#00ffcc"
     );
   }
+
+  drawPersons(now);
 }
 
 function processFrame(timestamp) {
 
   if (!running) return;
 
+  lastFrameTimestamp = timestamp;
+
   if (video.readyState < 2) {
+
+    // Frames are not arriving: let a selected target time out as lost.
+    tracker.tick(timestamp, { stalled: true });
+    notifyTracking();
+
     scheduleNextFrame();
     return;
   }
 
   if (timestamp - lastInference < INFERENCE_INTERVAL) {
+
+    // No detection this frame: only move the boxes a little.
+    if (canvas.width && canvas.height) {
+      tracker.tick(timestamp);
+      renderOverlay(timestamp);
+      notifyTracking();
+    }
+
     scheduleNextFrame();
     return;
   }
@@ -398,6 +797,8 @@ function processFrame(timestamp) {
 
   try {
 
+    let faceList = [];
+
     if (faceDetector) {
 
       const faces = faceDetector.detectForVideo(
@@ -405,22 +806,20 @@ function processFrame(timestamp) {
         timestamp
       );
 
-      const faceList = faces.detections || [];
+      faceList = faces.detections || [];
 
       faceStatus.textContent =
         `${faceList.length} FACE(S)`;
 
-      for (const face of faceList) {
+      lastFaces = faceList
+        .filter(face => face.boundingBox)
+        .map(face => ({
+          box: face.boundingBox,
+          score: face.categories?.[0]?.score ?? 0
+        }));
 
-        const score =
-          face.categories?.[0]?.score ?? 0;
-
-        drawBox(
-          face.boundingBox,
-          `FACE ${Math.round(score * 100)}%`,
-          "#00ffcc"
-        );
-      }
+      // Uses the same frame and detections that were just computed.
+      serveCropRequest(faceList, timestamp, width, height);
     }
 
     if (
@@ -435,20 +834,38 @@ function processFrame(timestamp) {
         timestamp
       );
 
-      lastPersons = (people.detections || []).filter(
-        detection =>
-          detection.categories?.some(
-            category => category.categoryName === "person"
-          )
-      );
+      const persons = [];
+
+      for (const detection of people.detections || []) {
+
+        const category = detection.categories?.find(
+          item => item.categoryName === "person"
+        );
+
+        if (category && detection.boundingBox) {
+          persons.push({
+            box: detection.boundingBox,
+            score: category.score ?? 0
+          });
+        }
+      }
+
+      // Only needed while a box is selected (the tracker uses it only when
+      // that box is missing), so the thumbnail is not read otherwise.
+      const blocked =
+        tracker.getSnapshot().selectedId !== null
+          ? looksBlocked()
+          : false;
+
+      tracker.update(persons, timestamp, width, height, { blocked });
 
       personStatus.textContent =
-        `${lastPersons.length} PERSON(S)`;
+        `${persons.length} PERSON(S)`;
     }
 
-    // Person boxes are detected every PERSON_INTERVAL but the canvas is
-    // cleared every frame, so redraw the latest result each time.
-    drawPersons();
+    tracker.tick(timestamp);
+    renderOverlay(timestamp);
+    notifyTracking();
 
     // Detection is not identity verification.
     ownerStatus.textContent = UNVERIFIED_TEXT;

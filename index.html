@@ -53,6 +53,19 @@
         <span id="cameraType">Camera: --</span>
       </div>
 
+      <div class="track-panel">
+        <div class="track-row">
+          <strong>PERSON TRACKING</strong>
+          <span id="trackStatus">STOPPED</span>
+          <button id="trackClearBtn" disabled>CLEAR SELECTION</button>
+        </div>
+        <p id="trackMessage" role="status">ยังไม่ได้ตรวจจับ เริ่มกล้องก่อน</p>
+        <p class="track-hint">
+          แตะกรอบบุคคลเพื่อเลือกกรอบที่จะติดตาม
+          การแตะไม่ใช่การยืนยันตัวตน ทุกกรอบจึงเป็น "ยังไม่ยืนยันตัวตน"
+        </p>
+      </div>
+
       <div class="controls">
         <button id="startBtn">
           START CAMERA
@@ -151,6 +164,47 @@
           <strong id="readyInference">NOT TESTED</strong>
         </li>
       </ul>
+
+    </section>
+
+    <section class="crop-panel">
+
+      <h2>FACE CROP EXPORT (MODEL TEST)</h2>
+      <p class="readiness-note">
+        ส่งออกภาพใบหน้า aligned ขนาด 112x112 (PNG) จากกล้อง เพื่อใช้ทดสอบโมเดลด้วย
+        tools/verify_face_model.py ภาพอยู่ในหน้านี้เท่านั้น ไม่อัปโหลดและไม่บันทึกลง
+        IndexedDB ใช้เฉพาะใบหน้าของคุณหรือคนที่ยินยอม
+      </p>
+
+      <label for="cropLabel">ป้ายชื่อคน (a-z, 0-9, _ -)</label>
+      <input
+        id="cropLabel"
+        type="text"
+        placeholder="เช่น me หรือ friend1"
+        maxlength="20"
+        autocapitalize="none"
+        autocomplete="off"
+      >
+
+      <button id="cropBtn" disabled>
+        EXPORT ALIGNED FACE
+      </button>
+
+      <p id="cropMessage" role="status">
+        เริ่มกล้องและรอให้ Face detector พร้อมก่อน
+      </p>
+
+      <div id="cropList" class="crop-list"></div>
+
+      <div class="crop-actions">
+        <button id="cropDownloadAllBtn" disabled>DOWNLOAD ALL</button>
+        <button id="cropClearBtn" disabled>CLEAR LIST</button>
+      </div>
+
+      <p class="readiness-note">
+        คนเดียวกัน 4-6 ภาพ (หันหน้าเล็กน้อย แสงต่างกันเล็กน้อย) และคนอื่นอย่างน้อย
+        1-2 คน ตั้งป้ายชื่อต่างกัน
+      </p>
 
     </section>
 
