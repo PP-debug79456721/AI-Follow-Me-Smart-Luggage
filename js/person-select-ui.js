@@ -76,7 +76,10 @@ function describe(snapshot) {
   switch (snapshot.state) {
 
     case TRACK_STATE.STOPPED:
-      return "ยังไม่ได้ตรวจจับ เริ่มกล้องก่อน";
+      // The camera can be running while the detector failed to load.
+      return readyPerson && readyPerson.textContent === "ERROR"
+        ? "ระบบตรวจจับบุคคลไม่พร้อม จึงเลือกบุคคลไม่ได้ (ดูข้อความใต้ภาพกล้อง)"
+        : "ยังไม่ได้ตรวจจับ เริ่มกล้องก่อน";
 
     case TRACK_STATE.WAITING:
       return readyPerson && readyPerson.textContent !== "READY"

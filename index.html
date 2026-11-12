@@ -66,6 +66,8 @@
         </p>
       </div>
 
+      <p id="aiLoadMessage" class="ai-load-message" role="alert" hidden></p>
+
       <div class="controls">
         <button id="startBtn">
           START CAMERA
@@ -124,8 +126,8 @@
 
       <h2>AI READINESS</h2>
       <p class="readiness-note">
-        แสดงสถานะจริงของแต่ละส่วน ระบบยังไม่ยืนยันว่าบุคคลใดเป็นเจ้าของ
-        จนกว่าโมเดลจดจำจะผ่านการทดสอบ inference
+        แสดงสถานะจริงของแต่ละส่วน Phase C ตรวจจับและติดตามบุคคลเท่านั้น
+        ไม่มีการรู้จำหรือยืนยันตัวตนเจ้าของ ทุกกรอบจึงเป็น "ยังไม่ยืนยันตัวตน"
       </p>
 
       <ul class="readiness-list">
@@ -138,20 +140,8 @@
           <strong id="readyFace">NOT LOADED</strong>
         </li>
         <li>
-          <span>Face recognition model (ArcFace)</span>
-          <strong id="readyFaceModel">NOT LOADED</strong>
-        </li>
-        <li>
-          <span>Person Re-ID model (OSNet)</span>
-          <strong id="readyReidModel" class="warn">NO MODEL</strong>
-        </li>
-        <li>
-          <span>Owner embeddings</span>
-          <strong id="readyEmbeddings">NOT GENERATED</strong>
-        </li>
-        <li>
-          <span>Recognition inference test</span>
-          <strong id="readyInference">NOT TESTED</strong>
+          <span>Owner recognition (face / Re-ID)</span>
+          <strong id="readyFaceModel">OFF (NOT USED IN PHASE C)</strong>
         </li>
       </ul>
 

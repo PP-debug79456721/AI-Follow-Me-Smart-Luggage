@@ -456,3 +456,30 @@ footer {
   color: #91a4b3;
   font-size: 11px;
 }
+
+/* AI loading notice under the camera (MediaPipe download / failure) */
+.ai-load-message {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid #314454;
+  background: #101c26;
+  color: #c1ccd5;
+}
+
+.ai-load-message[hidden] {
+  display: none;
+}
+
+.ai-load-message.warn {
+  border-color: #b38600;
+  color: #ffd166;
+}
+
+.ai-load-message.bad {
+  border-color: #a93636;
+  background: #2a1515;
+  color: #ffb3b3;
+}

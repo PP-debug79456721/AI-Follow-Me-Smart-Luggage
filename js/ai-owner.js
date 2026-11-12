@@ -1,9 +1,8 @@
 
-import {
-  FilesetResolver,
-  FaceDetector,
-  ObjectDetector
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
+// MediaPipe is loaded from the CDN with a dynamic import inside
+// loadDetectors(), not a static import: if the CDN cannot be reached, a
+// static import would stop app.js from running at all (no camera, no
+// messages). See AI_LOAD_MESSAGES below for what the user is told.
 
 // image-preprocessor.js has no external imports, so importing it
 // statically cannot make this module fail to load.
@@ -15,8 +14,92 @@ import {
 // Pure logic with no external imports (same reason as above).
 import { createPersonTracker } from "./person-tracker.js";
 
+const MEDIAPIPE_VERSION = "0.10.35";
+
+const MEDIAPIPE_BUNDLE_URL =
+  `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`;
+
 const MEDIAPIPE_WASM_URL =
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm";
+  `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
+
+const FACE_DETECTOR_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
+
+const PERSON_DETECTOR_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
+
+// Each loading step (runtime, face model, person model) may take this long.
+// The runtime is about 10 MB, so a slow phone connection needs time.
+// "?aiLoadTimeoutMs=" overrides it (used by the e2e test, minimum 1 s).
+const AI_LOAD_TIMEOUT_MS = (() => {
+  const value = Number(new URLSearchParams(location.search).get("aiLoadTimeoutMs"));
+  return Number.isFinite(value) && value >= 1000 ? value : 60000;
+})();
+
+const AI_LOAD_MESSAGES = Object.freeze({
+  LOADING:
+    "กำลังโหลดระบบตรวจจับบุคคล (MediaPipe) จากอินเทอร์เน็ต ครั้งแรกอาจใช้เวลาสักครู่",
+  RUNTIME_FAILED:
+    "โหลดระบบตรวจจับบุคคล (MediaPipe) จากอินเทอร์เน็ตไม่ได้ กล้องยังใช้ได้ " +
+    "แต่ยังตรวจจับและติดตามบุคคลไม่ได้ ตรวจการเชื่อมต่ออินเทอร์เน็ต แล้วรีโหลดหน้านี้",
+  TIMEOUT:
+    "โหลดระบบตรวจจับบุคคลนานเกินไป (อินเทอร์เน็ตอาจช้าหรือหลุด) กล้องยังใช้ได้ " +
+    "แต่ยังตรวจจับและติดตามบุคคลไม่ได้ ตรวจการเชื่อมต่อ แล้วรีโหลดหน้านี้",
+  PERSON_MODEL_FAILED:
+    "โหลดโมเดลตรวจจับบุคคลไม่ได้ จึงเลือกและติดตามบุคคลไม่ได้ " +
+    "ตรวจการเชื่อมต่อ แล้วรีโหลดหน้านี้",
+  FACE_MODEL_FAILED:
+    "โหลดโมเดลตรวจจับใบหน้าไม่ได้ การเลือกและติดตามบุคคลยังใช้ได้ " +
+    "แต่ส่งออกภาพใบหน้า (FACE CROP EXPORT) ไม่ได้"
+});
+
+const aiLoadMessage = document.getElementById("aiLoadMessage");
+
+/* Shows (text) or hides (null) the AI loading notice under the camera. */
+function showAiLoadMessage(text, level = "") {
+
+  if (!aiLoadMessage) return;
+
+  aiLoadMessage.hidden = !text;
+  aiLoadMessage.textContent = text || "";
+  aiLoadMessage.className = `ai-load-message ${level}`.trim();
+}
+
+class AiLoadTimeoutError extends Error {
+  constructor(step) {
+    super(`${step} did not finish within ${AI_LOAD_TIMEOUT_MS} ms`);
+    this.name = "AiLoadTimeoutError";
+  }
+}
+
+/*
+ * Rejects with AiLoadTimeoutError when the promise is slower than
+ * AI_LOAD_TIMEOUT_MS. A result that arrives after the timeout is passed
+ * to onLate (for example to close a detector nobody will use).
+ */
+function withTimeout(promise, step, onLate = () => {}) {
+
+  let timedOut = false;
+  let timer = null;
+
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new AiLoadTimeoutError(step));
+    }, AI_LOAD_TIMEOUT_MS);
+  });
+
+  promise.then(
+    value => { if (timedOut) onLate(value); },
+    () => {}
+  );
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+const closeLate = detector => {
+  try { detector?.close(); } catch (error) { console.error(error); }
+};
 
 const video = document.getElementById("camera");
 const canvas = document.getElementById("aiCanvas");
@@ -30,7 +113,6 @@ const aiStatus = document.getElementById("aiStatus");
 const readyPerson = document.getElementById("readyPerson");
 const readyFace = document.getElementById("readyFace");
 const readyFaceModel = document.getElementById("readyFaceModel");
-const readyReidModel = document.getElementById("readyReidModel");
 
 const UNVERIFIED_TEXT = "ยังไม่ยืนยันตัวตน";
 
@@ -320,6 +402,8 @@ export function initOwnerAI() {
     initPromise = loadDetectors().catch(error => {
       // Allow a retry after a failed initialization.
       initPromise = null;
+      // Let the tracking panel explain why nothing can be selected.
+      notifyTracking(true);
       throw error;
     });
   }
@@ -389,7 +473,9 @@ function describeModelStatus(status) {
 function showModelStatus(key, status) {
 
   const element =
-    key === "face" ? readyFaceModel : readyReidModel;
+    // Phase C shows a single "owner recognition" row (face model);
+    // there is no Re-ID row any more.
+    key === "face" ? readyFaceModel : null;
 
   const [text, level] = describeModelStatus(status);
 
@@ -453,35 +539,55 @@ async function loadDetectors() {
   aiStatus.textContent = "LOADING";
   setReady(readyPerson, "LOADING", "warn");
   setReady(readyFace, "LOADING", "warn");
+  showAiLoadMessage(AI_LOAD_MESSAGES.LOADING, "info");
 
   let vision;
+  let tasks;
 
   try {
-    vision = await FilesetResolver.forVisionTasks(
-      MEDIAPIPE_WASM_URL
+
+    tasks = await withTimeout(import(MEDIAPIPE_BUNDLE_URL), "MediaPipe runtime");
+
+    vision = await withTimeout(
+      tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL),
+      "MediaPipe runtime"
     );
+
   } catch (error) {
+
     console.error("MediaPipe runtime load error:", error);
+
     aiStatus.textContent = "AI ERROR";
     setReady(readyPerson, "ERROR", "bad");
     setReady(readyFace, "ERROR", "bad");
+
+    showAiLoadMessage(
+      error instanceof AiLoadTimeoutError
+        ? AI_LOAD_MESSAGES.TIMEOUT
+        : AI_LOAD_MESSAGES.RUNTIME_FAILED,
+      "bad"
+    );
+
     throw error;
   }
 
   const errors = [];
 
   try {
-    faceDetector = await FaceDetector.createFromOptions(
-      vision,
-      {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
-          delegate: "CPU"
-        },
-        runningMode: "VIDEO",
-        minDetectionConfidence: 0.6
-      }
+    faceDetector = await withTimeout(
+      tasks.FaceDetector.createFromOptions(
+        vision,
+        {
+          baseOptions: {
+            modelAssetPath: FACE_DETECTOR_MODEL_URL,
+            delegate: "CPU"
+          },
+          runningMode: "VIDEO",
+          minDetectionConfidence: 0.6
+        }
+      ),
+      "Face detector",
+      closeLate
     );
     setReady(readyFace, "READY", "ok");
   } catch (error) {
@@ -492,18 +598,21 @@ async function loadDetectors() {
   }
 
   try {
-    personDetector = await ObjectDetector.createFromOptions(
-      vision,
-      {
-        baseOptions: {
-          modelAssetPath:
-            "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
-          delegate: "CPU"
-        },
-        runningMode: "VIDEO",
-        scoreThreshold: 0.5,
-        maxResults: 10
-      }
+    personDetector = await withTimeout(
+      tasks.ObjectDetector.createFromOptions(
+        vision,
+        {
+          baseOptions: {
+            modelAssetPath: PERSON_DETECTOR_MODEL_URL,
+            delegate: "CPU"
+          },
+          runningMode: "VIDEO",
+          scoreThreshold: 0.5,
+          maxResults: 10
+        }
+      ),
+      "Person detector",
+      closeLate
     );
     setReady(readyPerson, "READY", "ok");
   } catch (error) {
@@ -515,7 +624,21 @@ async function loadDetectors() {
 
   if (!faceDetector && !personDetector) {
     aiStatus.textContent = "AI ERROR";
+    showAiLoadMessage(
+      errors.every(error => error instanceof AiLoadTimeoutError)
+        ? AI_LOAD_MESSAGES.TIMEOUT
+        : AI_LOAD_MESSAGES.PERSON_MODEL_FAILED,
+      "bad"
+    );
     throw errors[0];
+  }
+
+  if (!personDetector) {
+    showAiLoadMessage(AI_LOAD_MESSAGES.PERSON_MODEL_FAILED, "bad");
+  } else if (!faceDetector) {
+    showAiLoadMessage(AI_LOAD_MESSAGES.FACE_MODEL_FAILED, "warn");
+  } else {
+    showAiLoadMessage(null);
   }
 
   // Detectors only. No identity recognition is available yet.

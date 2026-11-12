@@ -148,8 +148,15 @@ after(async () => {
 // Page helpers
 // --------------------------------------------------
 
-/* Opens the app on a phone-sized touch screen and starts the camera. */
-async function openApp(kind = "room") {
+/*
+ * Opens the app on a phone-sized touch screen and starts the camera.
+ * options.mediapipe: "fake" (default), "unreachable" (CDN request fails)
+ *   or "hang" (CDN never answers); options.fail: { face, person } makes
+ *   the fake detector fail to load; options.query is added to the URL.
+ * Waits for the person detector unless options.waitReady is false.
+ */
+async function openApp(kind = "room", options = {}) {
+  const { mediapipe = "fake", fail = null, query = "", waitReady = mediapipe === "fake" && !fail?.person } = options;
   const context = await browsers[kind].newContext({
     viewport: { width: 412, height: 915 },
     deviceScaleFactor: 1,
@@ -164,6 +171,8 @@ async function openApp(kind = "room") {
   page.on("pageerror", error => errors.push(error.message));
 
   // Record every label drawn on the overlay canvas.
+  if (fail) await page.addInitScript(f => { window.__fakeFail = f; }, fail);
+
   await page.addInitScript(() => {
     window.__labels = new Set();
     const fillText = CanvasRenderingContext2D.prototype.fillText;
@@ -177,19 +186,24 @@ async function openApp(kind = "room") {
     const url = route.request().url();
     if (url.startsWith(baseUrl)) return route.continue();
     if (/@mediapipe\/tasks-vision@[\d.]+\/vision_bundle\.mjs$/.test(url)) {
-      return route.fulfill({ contentType: "text/javascript", body: FAKE_VISION });
+      if (mediapipe === "hang") return;   // never answer
+      if (mediapipe === "fake") {
+        return route.fulfill({ contentType: "text/javascript", body: FAKE_VISION });
+      }
     }
     external.push(url);
     return route.abort();
   });
 
-  await page.goto(`${baseUrl}/index.html`);
+  await page.goto(`${baseUrl}/index.html${query}`);
   await page.click("#startBtn");
-  await page.waitForFunction(
-    () => document.getElementById("readyPerson").textContent === "READY" &&
-      document.getElementById("trackStatus").textContent !== "STOPPED",
-    null, { timeout: 15000 }
-  );
+  if (waitReady) {
+    await page.waitForFunction(
+      () => document.getElementById("readyPerson").textContent === "READY" &&
+        document.getElementById("trackStatus").textContent !== "STOPPED",
+      null, { timeout: 15000 }
+    );
+  }
 
   return { context, page, external, errors };
 }
@@ -423,6 +437,15 @@ test("no face recognition: no ONNX / manifest / embedding module requested", { s
   const all = [...local, ...external];
   assert.deepEqual(all.filter(url => RECOGNITION_URL.test(url)), []);
   assert.equal(await page.textContent("#readyFaceModel"), "OFF (NOT USED IN PHASE C)");
+  // AI READINESS lists only the two detectors and the OFF recognition row.
+  const rows = await page.$$eval(".readiness-list li", items =>
+    items.map(li => [li.querySelector("span").textContent.trim(), li.querySelector("strong").textContent.trim()]));
+  assert.deepEqual(rows, [
+    ["Person detector (MediaPipe)", "READY"],
+    ["Face detector (MediaPipe)", "READY"],
+    ["Owner recognition (face / Re-ID)", "OFF (NOT USED IN PHASE C)"]
+  ]);
+  assert.equal(await page.isHidden("#aiLoadMessage"), true, "no notice after a good load");
   assert.equal(await page.textContent("#ownerStatus"), UNVERIFIED);
   await context.close();
 });
@@ -549,4 +572,70 @@ test("Phase A+B data: shown, never deleted automatically, deleted only after con
   assert.equal(after.samples, 0);
   assert.equal(after.embeddings, 0);
   await context.close();
+});
+
+// --------------------------------------------------
+// MediaPipe cannot be loaded
+// --------------------------------------------------
+
+const aiState = page => page.evaluate(() => ({
+  camera: document.getElementById("cameraStatus").textContent.trim(),
+  ai: document.getElementById("aiStatus").textContent.trim(),
+  person: document.getElementById("readyPerson").textContent,
+  face: document.getElementById("readyFace").textContent,
+  track: document.getElementById("trackMessage").textContent,
+  owner: document.getElementById("ownerStatus").textContent,
+  noticeHidden: document.getElementById("aiLoadMessage").hidden,
+  notice: document.getElementById("aiLoadMessage").textContent,
+  legacy: document.getElementById("legacyDataMessage").textContent.trim()
+}));
+
+test("MediaPipe CDN unreachable: camera works and a clear notice is shown", { skip: SKIP, timeout: 30000 }, async () => {
+  const { context, page, errors, external } = await openApp("room", { mediapipe: "unreachable" });
+  await page.waitForFunction(() => !document.getElementById("aiLoadMessage").hidden &&
+    document.getElementById("aiStatus").textContent === "AI ERROR", null, { timeout: 10000 });
+  const s = await aiState(page);
+  assert.equal(s.camera, "CONNECTED");
+  assert.equal(s.person, "ERROR");
+  assert.match(s.notice, /โหลดระบบตรวจจับบุคคล \(MediaPipe\) จากอินเทอร์เน็ตไม่ได้/);
+  assert.match(s.notice, /รีโหลดหน้านี้/);
+  assert.match(s.track, /ระบบตรวจจับบุคคลไม่พร้อม/);
+  assert.equal(s.owner, UNVERIFIED);
+  assert.match(s.legacy, /ไม่มีข้อมูลเจ้าของ/, "other panels still work");
+  assert.ok(external.some(url => url.includes("vision_bundle.mjs")));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test("MediaPipe download hangs: timeout notice instead of waiting forever", { skip: SKIP, timeout: 30000 }, async () => {
+  const { context, page } = await openApp("room", { mediapipe: "hang", query: "?aiLoadTimeoutMs=1500" });
+  await page.waitForFunction(() => document.getElementById("aiLoadMessage").textContent.includes("กำลังโหลด"), null, { timeout: 3000 });
+  await page.waitForFunction(() => document.getElementById("aiStatus").textContent === "AI ERROR", null, { timeout: 8000 });
+  const s = await aiState(page);
+  assert.match(s.notice, /นานเกินไป/);
+  assert.equal(s.camera, "CONNECTED");
+  await context.close();
+});
+
+test("one detector model fails: specific notice; tracking needs only the person model", { skip: SKIP, timeout: 40000 }, async () => {
+  {
+    const { context, page } = await openApp("room", { fail: { person: true } });
+    await page.waitForFunction(() => document.getElementById("readyPerson").textContent === "ERROR", null, { timeout: 10000 });
+    await page.waitForTimeout(300);
+    const s = await aiState(page);
+    assert.equal(s.face, "READY");
+    assert.match(s.notice, /โหลดโมเดลตรวจจับบุคคลไม่ได้/);
+    await context.close();
+  }
+  {
+    const { context, page } = await openApp("room", { fail: { face: true } });
+    const s = await aiState(page);
+    assert.equal(s.face, "ERROR");
+    assert.match(s.notice, /โหลดโมเดลตรวจจับใบหน้าไม่ได้/);
+    const b = box(120);
+    await setPersons(page, [b]);
+    await selectPerson(page, b);   // tracking still works
+    assert.match((await snapshot(page)).message, new RegExp(UNVERIFIED));
+    await context.close();
+  }
 });
