@@ -15,8 +15,10 @@ Machine-readable details (size, SHA-256, availability) live in
 - License: UNVERIFIED. No license is declared on the model page and the
   training data is not documented. Do not upload to a public release or
   publish until the license and origin are confirmed.
-- SHA-256: not recorded yet. Run `sha256sum models/face/face-recognition.onnx`
-  and put the value in `manifest.json` to enable the integrity check and cache.
+- SHA-256: `ffe014a45c9488506719d37fd578ece6661bb385535b36e8039975fa5d4683db`
+  (recorded in `manifest.json`; the app now verifies size and hash on load and
+  caches only a verified file). The hash identifies this exact file; it does not
+  prove its origin or license.
 
 ## models/person-reid/person-reid.onnx
 

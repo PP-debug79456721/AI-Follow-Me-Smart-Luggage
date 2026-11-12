@@ -1,3 +1,4 @@
 
 # ONNX model files stay local
 models/**/*.onnx
+*.zip

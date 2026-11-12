@@ -5,12 +5,28 @@
       "status": "AVAILABLE",
       "file": "models/face/face-recognition.onnx",
       "sizeBytes": 136619444,
-      "sha256": null,
+      "sha256": "ffe014a45c9488506719d37fd578ece6661bb385535b36e8039975fa5d4683db",
       "source": "https://huggingface.co/garavv/arcface-onnx (file: arc.onnx)",
       "license": "UNVERIFIED - no license is declared on the model page; do not publish or upload to a public release until confirmed",
       "release": null,
-      "input": { "name": "input_1", "layout": "NHWC", "shape": ["N", 112, 112, 3] },
-      "output": { "name": "embedding", "shape": ["N", 512] }
+      "input": {
+        "name": "input_1",
+        "layout": "NHWC",
+        "shape": [
+          "N",
+          112,
+          112,
+          3
+        ]
+      },
+      "output": {
+        "name": "embedding",
+        "shape": [
+          "N",
+          512
+        ]
+      },
+      "sha256Note": "Hash of the project owner's local file (reported by tools/verify_face_model.py). It identifies this exact file only; it does not establish origin or license."
     },
     "reid": {
       "status": "NO_MODEL",

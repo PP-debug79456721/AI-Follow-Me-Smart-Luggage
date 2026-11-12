@@ -90,8 +90,16 @@ def main() -> int:
         return 2
     print(f"SHA-256  : {sha256_of(path)}   <- put this in models/manifest.json")
 
-    import onnx
-    import onnxruntime as ort
+    try:
+        import onnx
+        import onnxruntime as ort
+    except ModuleNotFoundError as error:
+        print(f"\nMissing Python package: {error.name}")
+        print("File size and SHA-256 above are valid. To run the ONNX and inference checks, install:")
+        print("    python3 -m pip install onnx onnxruntime numpy pillow")
+        print("If pip reports 'externally-managed-environment', use a virtual environment:")
+        print("    python3 -m venv .venv && . .venv/bin/activate && pip install onnx onnxruntime numpy pillow")
+        return 3
 
     onnx.checker.check_model(onnx.load(str(path)))
     print("ONNX check: passed")
