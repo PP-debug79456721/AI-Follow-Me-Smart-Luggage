@@ -79,54 +79,44 @@
 
 <section class="registration-panel">
 
-  <h2>OWNER REGISTRATION</h2>
+  <h2>SAVED OWNER DATA (PHASE A+B)</h2>
   <p class="registration-description">
-    Create the owner's enrollment dataset
+    Phase C ไม่บันทึกภาพหรือข้อมูลใบหน้าลงเครื่อง และไม่มีการลงทะเบียนเจ้าของ
+    ส่วนนี้แสดงข้อมูลที่เวอร์ชันก่อนอาจบันทึกไว้ในเบราว์เซอร์นี้
+    (ภาพทั้งสองแบบเป็นภาพเต็มเฟรมจากกล้อง อาจมีใบหน้า)
+    ระบบไม่ลบให้อัตโนมัติ
   </p>
-
-  <label for="ownerName">Owner Name</label>
-  <input
-    id="ownerName"
-    type="text"
-    placeholder="Enter owner name"
-    maxlength="40"
-  >
-
-  <label for="captureMode">Capture Mode</label>
-  <select id="captureMode">
-    <option value="face">Face Enrollment</option>
-    <option value="reid">Person Re-ID (Back View)</option>
-  </select>
 
   <div class="sample-count">
     <div>
-      <span>FACE SAMPLES</span>
-      <strong id="faceCount">0 / 8</strong>
+      <span>FACE IMAGES</span>
+      <strong id="legacyFaceCount">--</strong>
     </div>
 
     <div>
-      <span>RE-ID SAMPLES</span>
-      <strong id="reidCount">0 / 15</strong>
+      <span>RE-ID IMAGES</span>
+      <strong id="legacyReidCount">--</strong>
+    </div>
+
+    <div>
+      <span>EMBEDDINGS</span>
+      <strong id="legacyEmbeddingCount">--</strong>
     </div>
   </div>
 
-  <button id="captureBtn" disabled>
-    CAPTURE OWNER SAMPLE
-  </button>
-
-  <p id="registrationMessage" role="status">
-    Start camera before enrollment.
+  <p id="legacyDataMessage" role="status">
+    กำลังตรวจข้อมูลเดิม...
   </p>
 
-  <label class="consent-row">
-    <input type="checkbox" id="consentCheck">
-    I consent to storing my face and appearance images
-    locally on this device for this project.
-  </label>
-
-  <button id="deleteSamplesBtn" class="danger-button">
-    DELETE ALL OWNER DATA
+  <button id="legacyDeleteBtn" class="danger-button" disabled>
+    DELETE SAVED OWNER DATA
   </button>
+
+  <p class="registration-description">
+    ลบเองได้อีกทาง: ในการตั้งค่าเบราว์เซอร์ ให้ลบข้อมูลเว็บไซต์ (site data / storage)
+    ของหน้านี้ เช่น Chrome บน Android: เมนู &#8942; &gt; Settings &gt; Site settings
+    &gt; All sites &gt; เลือกเว็บไซต์นี้ &gt; Delete data
+  </p>
 
 </section>
 

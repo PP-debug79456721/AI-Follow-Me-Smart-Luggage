@@ -30,7 +30,12 @@ phone-sized touch screen and checks:
 - no ONNX Runtime, model file, `manifest.json` or embedding module is
   requested (no face recognition in Phase C);
 - FACE CROP EXPORT gives a 112x112 PNG from a page-local `blob:` URL, with
-  no network request and no IndexedDB change.
+  no network request and no IndexedDB change;
+- the Phase A+B enrollment UI is gone and a full session (camera, tracking,
+  face crop) creates no IndexedDB database;
+- data saved by Phase A+B is shown in SAVED OWNER DATA, survives reloads
+  and app use, is kept when the delete dialog is cancelled, and is cleared
+  only after the user confirms.
 
 MediaPipe is replaced by `e2e/fake-vision.mjs`, so the test needs no
 network or model files and the person/face boxes are set by the test. The

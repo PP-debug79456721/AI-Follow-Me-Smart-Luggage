@@ -3,8 +3,8 @@ import {
   startOwnerAI,
   stopOwnerAI
 } from "./ai-owner.js";
-import { initOwnerRegistration }
-  from "./owner-registration.js";
+import { initLegacyOwnerData }
+  from "./legacy-owner-data.js";
 import { initPersonSelection }
   from "./person-select-ui.js";
 import {
@@ -165,27 +165,6 @@ video.addEventListener("error", () => {
   setStatus("cameraStatus", "VIDEO ERROR");
 });
 
-initOwnerRegistration();
+initLegacyOwnerData();
 initFaceCropExport();
 initPersonSelection();
-
-function determineOwnerState({
-  faceMatch,
-  reidMatch,
-  trackConsistent
-}) {
-
-  if (faceMatch && trackConsistent) {
-    return "OWNER_VERIFIED";
-  }
-
-  if (reidMatch && trackConsistent) {
-    return "OWNER_TRACKING";
-  }
-
-  if (!trackConsistent) {
-    return "IDENTITY_UNCERTAIN";
-  }
-
-  return "OWNER_LOST";
-}
