@@ -3,12 +3,22 @@ import {
   startOwnerAI,
   stopOwnerAI
 } from "./ai-owner.js";
-import { initOwnerRegistration }
-  from "./owner-registration.js";
+import { initLegacyOwnerData }
+  from "./legacy-owner-data.js";
+import { initPersonSelection }
+  from "./person-select-ui.js";
+import {
+  initFaceCropExport,
+  setFaceCropEnabled
+} from "./face-crop-export.js";
 import {
   startCamera,
   stopCamera,
-  getCameraInfo
+  getCameraInfo,
+  describeCamera,
+  onFpsUpdate,
+  onCameraEnded,
+  isCameraLive
 } from "./camera.js";
 
 const startBtn = document.getElementById("startBtn");
@@ -16,63 +26,67 @@ const stopBtn = document.getElementById("stopBtn");
 
 const video = document.getElementById("camera");
 
-let animationId = null;
-let lastTime = performance.now();
-let frameCount = 0;
-let lastFpsUpdate = performance.now();
-
 function setStatus(id, value) {
   document.getElementById(id).textContent = value;
 }
 
-function describeFacingMode(facingMode) {
-
-  if (facingMode === "environment") return "Rear";
-  if (facingMode === "user") return "Front";
-
-  // Browser did not report which camera is in use.
-  return "Unknown";
+/* The same camera label on the video overlay and under the video. */
+function showCameraLabel(settings) {
+  const label = settings ? describeCamera(settings) : null;
+  setStatus("cameraLabel", label ?? "CAMERA");
+  setStatus("cameraType", `Camera: ${label ?? "--"}`);
 }
 
-function startFpsMonitor() {
+// FPS comes from real camera frames (camera.js). null = the browser
+// cannot measure it, so "--" is shown instead of a guess.
+onFpsUpdate(fps => {
 
-  cancelAnimationFrame(animationId);
-
-  frameCount = 0;
-  lastTime = performance.now();
-  lastFpsUpdate = lastTime;
-
-  function update() {
-
-    if (!video.srcObject) return;
-
-    frameCount++;
-
-    const now = performance.now();
-
-    if (now - lastFpsUpdate >= 1000) {
-
-      const fps =
-        frameCount * 1000 / (now - lastFpsUpdate);
-
-      setStatus("fpsValue", `${fps.toFixed(1)} FPS`);
-
-      frameCount = 0;
-      lastFpsUpdate = now;
-    }
-
-    animationId = requestAnimationFrame(update);
+  // Track ended without an "ended" event: handle it the same way.
+  if (video.srcObject && !isCameraLive()) {
+    handleCameraEnded();
+    return;
   }
 
-  animationId = requestAnimationFrame(update);
-}
+  if (fps === null) {
+    setStatus("fpsValue", "-- FPS");
+    return;
+  }
 
-function stopFpsMonitor() {
+  setStatus("fpsValue", `${fps.toFixed(1)} FPS`);
 
-  cancelAnimationFrame(animationId);
+  // Connected but no new frame in the last second.
+  if (video.srcObject) {
+    setStatus("cameraStatus", fps > 0 ? "CONNECTED" : "NO FRAMES");
+  }
+});
+
+/* Puts the page back in the "camera off" state. */
+function resetToStopped({ cameraStatus, systemStatus }) {
+
+  stopCamera();
+  stopOwnerAI();
+  setFaceCropEnabled(false);
 
   setStatus("fpsValue", "0 FPS");
+  setStatus("cameraStatus", cameraStatus);
+  setStatus("resolution", "Resolution: --");
+  showCameraLabel(null);
+  setStatus("systemStatus", systemStatus);
+
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
 }
+
+// The camera stopped by itself (permission revoked, taken by another app,
+// unplugged): stop detection on the last frozen image and allow a restart.
+function handleCameraEnded() {
+  resetToStopped({
+    cameraStatus: "CAMERA ENDED",
+    systemStatus: "CAMERA ENDED - PRESS START CAMERA"
+  });
+}
+
+onCameraEnded(handleCameraEnded);
 
 startBtn.addEventListener("click", async () => {
 
@@ -94,17 +108,12 @@ startBtn.addEventListener("click", async () => {
       `Resolution: ${settings.width} x ${settings.height}`
     );
 
-    setStatus(
-      "cameraType",
-      `Camera: ${describeFacingMode(settings.facingMode)}`
-    );
+    showCameraLabel(settings);
 
     setStatus("systemStatus", "CAMERA READY");
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
-
-    startFpsMonitor();
 
   } catch (error) {
 
@@ -128,6 +137,7 @@ startBtn.addEventListener("click", async () => {
     // The user may have pressed STOP while the detectors were loading.
     if (video.srcObject) {
       startOwnerAI();
+      setFaceCropEnabled(true);
     }
 
   } catch (error) {
@@ -139,43 +149,16 @@ startBtn.addEventListener("click", async () => {
 });
 
 stopBtn.addEventListener("click", () => {
-
-  stopCamera();
-  stopFpsMonitor();
-  stopOwnerAI();
-
-  setStatus("cameraStatus", "DISCONNECTED");
-  setStatus("resolution", "Resolution: --");
-  setStatus("cameraType", "Camera: --");
-  setStatus("systemStatus", "SYSTEM READY");
-
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
+  resetToStopped({
+    cameraStatus: "DISCONNECTED",
+    systemStatus: "SYSTEM READY"
+  });
 });
 
 video.addEventListener("error", () => {
   setStatus("cameraStatus", "VIDEO ERROR");
 });
 
-initOwnerRegistration();
-
-function determineOwnerState({
-  faceMatch,
-  reidMatch,
-  trackConsistent
-}) {
-
-  if (faceMatch && trackConsistent) {
-    return "OWNER_VERIFIED";
-  }
-
-  if (reidMatch && trackConsistent) {
-    return "OWNER_TRACKING";
-  }
-
-  if (!trackConsistent) {
-    return "IDENTITY_UNCERTAIN";
-  }
-
-  return "OWNER_LOST";
-}
+initLegacyOwnerData();
+initFaceCropExport();
+initPersonSelection();
