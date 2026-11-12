@@ -14,6 +14,10 @@ import {
 // Pure logic with no external imports (same reason as above).
 import { createPersonTracker } from "./person-tracker.js";
 
+// No external imports either: tells whether the camera still delivers
+// new frames.
+import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
+
 const MEDIAPIPE_VERSION = "0.10.35";
 
 const MEDIAPIPE_BUNDLE_URL =
@@ -113,6 +117,7 @@ const aiStatus = document.getElementById("aiStatus");
 const readyPerson = document.getElementById("readyPerson");
 const readyFace = document.getElementById("readyFace");
 const readyFaceModel = document.getElementById("readyFaceModel");
+const readyReidModel = document.getElementById("readyReidModel");
 
 const UNVERIFIED_TEXT = "ยังไม่ยืนยันตัวตน";
 
@@ -139,6 +144,27 @@ let lastPersonInference = 0;
 
 const INFERENCE_INTERVAL = 250;
 const PERSON_INTERVAL = 500;
+
+// No new camera frame for this long = the image on screen is frozen.
+// Detection is then skipped, so nothing is "tracked" on a stale picture.
+const FRAME_STALL_MS = 1000;
+
+/*
+ * True when detection must not run because the camera gives no new
+ * image: not enough data yet, the camera track ended, or no new video
+ * frame for FRAME_STALL_MS (only measurable with requestVideoFrameCallback;
+ * without it, an ended track and readyState are still checked).
+ */
+function cameraStalled() {
+
+  if (video.readyState < 2) return true;
+
+  if (video.srcObject && !isCameraLive()) return true;
+
+  const lastFrame = getLastVideoFrameTime();
+
+  return lastFrame !== null && performance.now() - lastFrame > FRAME_STALL_MS;
+}
 
 // Face recognition is not part of Phase C. Keep false until a face model
 // with a confirmed license and acceptable size has been approved.
@@ -473,9 +499,7 @@ function describeModelStatus(status) {
 function showModelStatus(key, status) {
 
   const element =
-    // Phase C shows a single "owner recognition" row (face model);
-    // there is no Re-ID row any more.
-    key === "face" ? readyFaceModel : null;
+    key === "face" ? readyFaceModel : readyReidModel;
 
   const [text, level] = describeModelStatus(status);
 
@@ -878,11 +902,20 @@ function processFrame(timestamp) {
 
   lastFrameTimestamp = timestamp;
 
-  if (video.readyState < 2) {
+  if (cameraStalled()) {
 
-    // Frames are not arriving: let a selected target time out as lost.
+    // Frames are not arriving: run no detection on the frozen image,
+    // clear its boxes, and let a selected target time out as lost.
     tracker.tick(timestamp, { stalled: true });
     notifyTracking();
+
+    if (canvas.width && canvas.height) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    lastFaces = [];
+    faceStatus.textContent = "NO CAMERA FRAMES";
+    personStatus.textContent = "NO CAMERA FRAMES";
 
     scheduleNextFrame();
     return;

@@ -437,13 +437,17 @@ test("no face recognition: no ONNX / manifest / embedding module requested", { s
   const all = [...local, ...external];
   assert.deepEqual(all.filter(url => RECOGNITION_URL.test(url)), []);
   assert.equal(await page.textContent("#readyFaceModel"), "OFF (NOT USED IN PHASE C)");
-  // AI READINESS lists only the two detectors and the OFF recognition row.
+  // AI READINESS: the detectors, then every recognition part shown as not
+  // in use; nothing claims the owner can be recognised.
   const rows = await page.$$eval(".readiness-list li", items =>
     items.map(li => [li.querySelector("span").textContent.trim(), li.querySelector("strong").textContent.trim()]));
   assert.deepEqual(rows, [
     ["Person detector (MediaPipe)", "READY"],
     ["Face detector (MediaPipe)", "READY"],
-    ["Owner recognition (face / Re-ID)", "OFF (NOT USED IN PHASE C)"]
+    ["Face recognition model", "OFF (NOT USED IN PHASE C)"],
+    ["Person Re-ID model", "NO MODEL"],
+    ["Enrollment embeddings", "OFF (NOT USED IN PHASE C)"],
+    ["Recognition inference test", "NOT TESTED"]
   ]);
   assert.equal(await page.isHidden("#aiLoadMessage"), true, "no notice after a good load");
   assert.equal(await page.textContent("#ownerStatus"), UNVERIFIED);
@@ -638,4 +642,158 @@ test("one detector model fails: specific notice; tracking needs only the person 
     assert.match((await snapshot(page)).message, new RegExp(UNVERIFIED));
     await context.close();
   }
+});
+
+// --------------------------------------------------
+// Phase A: camera label, real FPS, camera stopping
+// --------------------------------------------------
+
+/* Counts how often the (fake) person detector runs: it reads __persons. */
+async function countDetections(page) {
+  await page.evaluate(() => {
+    let value = window.__persons;
+    window.__personReads = 0;
+    Object.defineProperty(window, "__persons", {
+      configurable: true,
+      get() { window.__personReads++; return value; },
+      set(next) { value = next; }
+    });
+  });
+  return () => page.evaluate(() => window.__personReads);
+}
+
+/* Real video frame rate measured by the test itself. */
+const measuredFps = page => page.evaluate(() => new Promise(resolve => {
+  const video = document.getElementById("camera");
+  let frames = 0;
+  const start = performance.now();
+  const onFrame = () => {
+    frames++;
+    if (performance.now() - start < 2000) video.requestVideoFrameCallback(onFrame);
+    else resolve(frames * 1000 / (performance.now() - start));
+  };
+  video.requestVideoFrameCallback(onFrame);
+}));
+
+const shownFps = async page => parseFloat(await page.textContent("#fpsValue"));
+
+test("camera label is the same on the video and under it", { skip: SKIP, timeout: 30000 }, async () => {
+  const { context, page } = await openApp();
+  const overlay = await page.textContent("#cameraLabel");
+  assert.equal(await page.textContent("#cameraType"), `Camera: ${overlay}`);
+  // The fake camera reports no facing mode.
+  assert.equal(overlay, "CAMERA (UNKNOWN)");
+  const labels = await page.evaluate(async () => {
+    const { describeCamera } = await import("/js/camera.js");
+    return [
+      describeCamera({ facingMode: "environment" }),
+      describeCamera({ facingMode: "user" }),
+      describeCamera({})
+    ];
+  });
+  assert.deepEqual(labels, ["FORWARD CAMERA (REAR)", "FRONT CAMERA (SELFIE)", "CAMERA (UNKNOWN)"]);
+  await page.click("#stopBtn");
+  assert.equal(await page.textContent("#cameraLabel"), "CAMERA");
+  assert.equal(await page.textContent("#cameraType"), "Camera: --");
+  await context.close();
+});
+
+test("FPS shows real camera frames, not the screen refresh rate", { skip: SKIP, timeout: 30000 }, async () => {
+  const { context, page } = await openApp();
+  await page.waitForTimeout(2200);
+  const real = await measuredFps(page);
+  const shown = await shownFps(page);
+  // The test video plays at 10 fps; the screen refreshes at about 60.
+  assert.ok(real > 5 && real < 20, `measured ${real}`);
+  assert.ok(Math.abs(shown - real) < 3, `shown ${shown} vs measured ${real}`);
+  await context.close();
+});
+
+test("without requestVideoFrameCallback the FPS shows '--'", { skip: SKIP, timeout: 30000 }, async () => {
+  const context = await browsers.room.newContext({ viewport: { width: 412, height: 915 } });
+  const page = await context.newPage();
+  await page.addInitScript(() => { delete HTMLVideoElement.prototype.requestVideoFrameCallback; });
+  await page.route(/.*/, route => {
+    const url = route.request().url();
+    if (url.startsWith(baseUrl)) return route.continue();
+    if (url.endsWith("vision_bundle.mjs")) return route.fulfill({ contentType: "text/javascript", body: FAKE_VISION });
+    return route.abort();
+  });
+  await page.goto(`${baseUrl}/index.html`);
+  await page.click("#startBtn");
+  await page.waitForFunction(() => document.getElementById("cameraStatus").textContent === "CONNECTED");
+  await page.waitForTimeout(1500);
+  assert.equal(await page.textContent("#fpsValue"), "-- FPS");
+  await context.close();
+});
+
+for (const how of ["ended event", "no ended event"]) {
+  test(`camera ends while TRACKING (${how}): detection stops, no TRACKING, START works again`, { skip: SKIP, timeout: 40000 }, async () => {
+    const { context, page } = await openApp();
+    const b = box(120);
+    await setPersons(page, [b]);
+    await selectPerson(page, b);
+    const reads = await countDetections(page);
+
+    await page.evaluate(withEvent => {
+      const track = document.getElementById("camera").srcObject.getVideoTracks()[0];
+      track.stop();
+      // A camera taken away by the system fires "ended"; track.stop() does not.
+      if (withEvent) track.dispatchEvent(new Event("ended"));
+    }, how === "ended event");
+
+    await page.waitForFunction(() => document.getElementById("cameraStatus").textContent === "CAMERA ENDED", null, { timeout: 3000 });
+    const status = await page.evaluate(() => ({
+      track: document.getElementById("trackStatus").textContent,
+      start: document.getElementById("startBtn").disabled,
+      stop: document.getElementById("stopBtn").disabled,
+      system: document.getElementById("systemStatus").textContent.trim()
+    }));
+    assert.notEqual(status.track, "TRACKING");
+    assert.equal(status.start, false, "START must be enabled");
+    assert.equal(status.stop, true);
+    assert.match(status.system, /CAMERA ENDED/);
+
+    const before = await reads();
+    await page.waitForTimeout(1200);
+    assert.equal(await reads(), before, "no detection after the camera ended");
+
+    // Restart works.
+    await page.click("#startBtn");
+    await waitStatus(page, "NOT SELECTED", 8000);
+    assert.equal(await page.textContent("#cameraStatus"), "CONNECTED");
+    await selectPerson(page, b);
+    await context.close();
+  });
+}
+
+test("frozen camera (no new frame > 1 s): detection stops, SEARCHING then LOST", { skip: SKIP, timeout: 40000 }, async () => {
+  const { context, page } = await openApp();
+  const b = box(120);
+  await setPersons(page, [b]);
+  await selectPerson(page, b);
+  const reads = await countDetections(page);
+
+  const t0 = Date.now();
+  await page.evaluate(() => document.getElementById("camera").pause());   // frames stop
+
+  await waitStatus(page, "SEARCHING", 3000);
+  const before = await reads();
+  await page.waitForTimeout(1000);
+  assert.equal(await reads(), before, "no detection on the frozen image");
+
+  await waitStatus(page, "LOST", 5000);
+  const lostAfter = Date.now() - t0;
+  assert.ok(lostAfter < 5000, `LOST after ${lostAfter} ms`);
+  assert.match(await page.textContent("#trackMessage"), /ภาพจากกล้องหยุดนิ่ง/);
+  assert.equal(await page.textContent("#cameraStatus"), "NO FRAMES");
+  assert.equal(await page.textContent("#personAIStatus"), "NO CAMERA FRAMES");
+
+  // Frames come back: detection runs again and the person can be tapped.
+  await page.evaluate(() => document.getElementById("camera").play());
+  await page.waitForFunction(() => document.getElementById("personAIStatus").textContent === "1 PERSON(S)", null, { timeout: 4000 });
+  assert.ok(await reads() > before);
+  await tapVideo(page, b.originX + b.width / 2, b.originY + b.height / 2);
+  await waitStatus(page, "TRACKING", 2000);
+  await context.close();
 });

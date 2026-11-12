@@ -42,7 +42,7 @@
                playsinline></video>
 
         <div class="camera-overlay">
-          <span>FORWARD CAMERA</span>
+          <span id="cameraLabel">CAMERA</span>
           <span id="fpsValue">0 FPS</span>
         </div>
 
@@ -140,8 +140,20 @@
           <strong id="readyFace">NOT LOADED</strong>
         </li>
         <li>
-          <span>Owner recognition (face / Re-ID)</span>
+          <span>Face recognition model</span>
           <strong id="readyFaceModel">OFF (NOT USED IN PHASE C)</strong>
+        </li>
+        <li>
+          <span>Person Re-ID model</span>
+          <strong id="readyReidModel">NO MODEL</strong>
+        </li>
+        <li>
+          <span>Enrollment embeddings</span>
+          <strong id="readyEmbeddings">OFF (NOT USED IN PHASE C)</strong>
+        </li>
+        <li>
+          <span>Recognition inference test</span>
+          <strong id="readyInference">NOT TESTED</strong>
         </li>
       </ul>
 
