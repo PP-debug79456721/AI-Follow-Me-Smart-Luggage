@@ -54,24 +54,21 @@ function setTapNote(text) {
   }
 }
 
+// Shown for every LOST reason that is only a guess (OUT_OF_FRAME,
+// CAMERA_BLOCKED, NOT_FOUND in person-tracker.js). Those guesses are not
+// tuned on real devices, so the message stays neutral instead of naming
+// a cause that may be wrong.
+const LOST_NEUTRAL_TEXT = "ไม่พบกรอบที่เลือก หลุดการติดตาม แตะเลือกคนใหม่";
+
 function describeLost(reason) {
 
-  switch (reason) {
-
-    // The reasons are best guesses (see LOST_REASON in person-tracker.js),
-    // so the wording says "น่าจะ" / "อาจ" rather than stating a fact.
-    case LOST_REASON.OUT_OF_FRAME:
-      return "กรอบที่เลือกน่าจะเดินออกทางขอบซ้ายหรือขวาของภาพ หลุดการติดตาม แตะเลือกคนใหม่";
-
-    case LOST_REASON.CAMERA_BLOCKED:
-      return "ภาพจากกล้องมืดหรือแทบไม่มีรายละเอียด กล้องอาจถูกบัง หลุดการติดตาม ตรวจสอบกล้องแล้วแตะเลือกใหม่";
-
-    case LOST_REASON.CAMERA_STALLED:
-      return "ภาพจากกล้องหยุดนิ่ง หลุดการติดตาม ตรวจสอบกล้องแล้วแตะเลือกใหม่";
-
-    default:
-      return "ไม่พบกรอบที่เลือก (อาจถูกบัง อยู่ไกลเกินไป หรือตรวจจับไม่ได้) หลุดการติดตาม แตะเลือกคนใหม่";
+  // A stalled camera is observed directly (video frames stopped), not
+  // guessed, so it keeps its own message.
+  if (reason === LOST_REASON.CAMERA_STALLED) {
+    return "ภาพจากกล้องหยุดนิ่ง หลุดการติดตาม ตรวจสอบกล้องแล้วแตะเลือกใหม่";
   }
+
+  return LOST_NEUTRAL_TEXT;
 }
 
 function describe(snapshot) {

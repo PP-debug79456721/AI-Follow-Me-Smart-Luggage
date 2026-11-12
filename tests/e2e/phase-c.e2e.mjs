@@ -35,6 +35,8 @@ const FAKE_VISION = fs.readFileSync(
 );
 
 const UNVERIFIED = "ยังไม่ยืนยันตัวตน";
+// Every guessed LOST reason shows this neutral text (person-select-ui.js).
+const LOST_NEUTRAL = "ไม่พบกรอบที่เลือก หลุดการติดตาม แตะเลือกคนใหม่";
 const VIDEO_W = 320;
 const VIDEO_H = 240;
 const ORANGE = [255, 176, 32];   // selected box colour in ai-owner.js
@@ -343,7 +345,7 @@ test("tap selects a moving person: orange box, '#1', always unverified", { skip:
   await context.close();
 });
 
-test("person vanishes mid-frame: SEARCHING, then LOST about 2.5 s later, NOT_FOUND text", { skip: SKIP, timeout: 30000 }, async () => {
+test("person vanishes mid-frame: SEARCHING, then LOST about 2.5 s later, neutral text", { skip: SKIP, timeout: 30000 }, async () => {
   const { context, page } = await openApp();
   // Touches the bottom edge like a person close to a luggage-height camera;
   // that must not be reported as "left the frame".
@@ -355,11 +357,11 @@ test("person vanishes mid-frame: SEARCHING, then LOST about 2.5 s later, NOT_FOU
   // the removal, and polling adds a little, so allow 1.8 - 3.5 s.
   assert.ok(timing.searching < timing.lost);
   assert.ok(timing.lost >= 1800 && timing.lost <= 3500, JSON.stringify(timing));
-  assert.match((await snapshot(page)).message, /^ไม่พบกรอบที่เลือก/);
+  assert.equal((await snapshot(page)).message, LOST_NEUTRAL);
   await context.close();
 });
 
-test("person walks out the left edge: OUT_OF_FRAME text", { skip: SKIP, timeout: 30000 }, async () => {
+test("person walks out the left edge: neutral text, no guessed cause", { skip: SKIP, timeout: 30000 }, async () => {
   const { context, page } = await openApp();
   const b = box(60);
   await setPersons(page, [b]);
@@ -370,17 +372,17 @@ test("person walks out the left edge: OUT_OF_FRAME text", { skip: SKIP, timeout:
   }
   assert.equal((await snapshot(page)).status, "TRACKING");
   await removeAndTime(page);
-  assert.match((await snapshot(page)).message, /ขอบซ้ายหรือขวา/);
+  assert.equal((await snapshot(page)).message, LOST_NEUTRAL);
   await context.close();
 });
 
-test("covered (dark) camera: CAMERA_BLOCKED text", { skip: SKIP, timeout: 30000 }, async () => {
+test("covered (dark) camera: neutral text, no guessed cause", { skip: SKIP, timeout: 30000 }, async () => {
   const { context, page } = await openApp("dark");
   const b = box(120);
   await setPersons(page, [b]);
   await selectPerson(page, b);
   await removeAndTime(page);
-  assert.match((await snapshot(page)).message, /กล้องอาจถูกบัง/);
+  assert.equal((await snapshot(page)).message, LOST_NEUTRAL);
   await context.close();
 });
 

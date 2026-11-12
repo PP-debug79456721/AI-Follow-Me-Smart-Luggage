@@ -6,7 +6,8 @@ Run every command from the repository root.
 
 Pure logic of `js/person-tracker.js`: tap hit-test (including the gliding
 box drawn on screen), matching the selected box between detections,
-SEARCHING / LOST timing, LOST reason, a person coming back, and tap
+SEARCHING / LOST timing, the internal LOST reason (the page shows a
+neutral message for the guessed reasons), a person coming back, and tap
 position mapping through the letterbox bars.
 
 Needs only Node 18 or newer, no packages:
@@ -22,9 +23,9 @@ phone-sized touch screen and checks:
 
 - tapping a moving person selects it, the box turns orange, and every
   person label says "ยังไม่ยืนยันตัวตน";
-- SEARCHING, then LOST about 2.5 s later, with the right message for a
-  person vanishing mid-frame, walking out the left edge, or a covered
-  (dark) camera;
+- SEARCHING, then LOST about 2.5 s later; for a person vanishing
+  mid-frame, walking out the left edge, or a covered (dark) camera the
+  message is the neutral "ไม่พบกรอบที่เลือก…" (no guessed cause);
 - a person coming back: tracking resumes while SEARCHING; after LOST only a
   new tap selects them (new number);
 - no ONNX Runtime, model file, `manifest.json` or embedding module is
