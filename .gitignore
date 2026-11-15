@@ -7,3 +7,4 @@ models/**/*.onnx
 firmware/esp32-follow/wifi_secrets.h
 node_modules/
 *pastedcontent*.txt
+__pycache__/
