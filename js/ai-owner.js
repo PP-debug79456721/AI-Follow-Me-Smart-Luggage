@@ -784,12 +784,15 @@ let lastMotion = {
   reason: MOTION_REASON.CAMERA_UNAVAILABLE
 };
 
-// ?stop=0.90 (bench): stop when the person's box is this tall (fraction of the
-// frame height). Default 0.80. Higher = the luggage follows closer. Clamped to
-// 0.50-0.95; motion-smoother resumes 0.10 below it (see app.js).
+// Stop when the person's box is this tall (fraction of the frame height).
+// motion-decision's own default is 0.80; the bench owner chose 0.95 (follow
+// closer). ?stop=0.80 etc. overrides it. Clamped to 0.50-0.95;
+// motion-smoother resumes 0.10 below it (see app.js).
+const BENCH_STOP_HEIGHT = 0.95;
 export const STOP_HEIGHT_OVERRIDE = (() => {
   const value = Number(new URLSearchParams(location.search).get("stop"));
-  return Number.isFinite(value) && value > 0 ? Math.min(0.95, Math.max(0.5, value)) : null;
+  const chosen = Number.isFinite(value) && value > 0 ? value : BENCH_STOP_HEIGHT;
+  return Math.min(0.95, Math.max(0.5, chosen));
 })();
 const MOTION_OVERRIDES = STOP_HEIGHT_OVERRIDE ? { stopHeightRatio: STOP_HEIGHT_OVERRIDE } : {};
 
