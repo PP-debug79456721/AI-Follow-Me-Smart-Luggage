@@ -275,8 +275,65 @@ const espFollowBtn = document.getElementById("espFollowBtn");
 const espEstopBtn = document.getElementById("espEstopBtn");
 const espClearEstopBtn = document.getElementById("espClearEstopBtn");
 
-espConnectBtn.addEventListener("click", () => session.connect(espUrl.value));
-espDisconnectBtn.addEventListener("click", () => session.disconnect());
+// ---- Convenience (bench): remember the URL, reconnect by itself ----------
+// The URL is remembered on this device. After CONNECT the page reconnects by
+// itself (on reload too, and after DEVICE BUSY) until DISCONNECT is pressed.
+// FOLLOW is NOT re-armed by any of this: after every reconnect the user still
+// presses ARM / FOLLOW (esp32-session.js safety rule).
+const STORE_URL = "esp32.url";
+const STORE_AUTO = "esp32.autoConnect";
+const DEFAULT_URL = "ws://192.168.137.50:81/ws";   // firmware static IP (config.h kStaticIp)
+const BUSY_RETRY_MS = 2500;
+
+function store(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);
+  } catch { /* storage may be unavailable: only the convenience is lost */ }
+}
+function load(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+espUrl.value = load(STORE_URL) || espUrl.value || DEFAULT_URL;
+let autoConnect = load(STORE_AUTO) === "1";
+let busyRetryTimer = null;
+
+function connectNow() {
+  const url = espUrl.value.trim();
+  if (!url) return;
+  store(STORE_URL, url);
+  session.connect(url);
+}
+
+espConnectBtn.addEventListener("click", () => {
+  autoConnect = true;
+  store(STORE_AUTO, "1");
+  connectNow();
+});
+espDisconnectBtn.addEventListener("click", () => {
+  autoConnect = false;
+  store(STORE_AUTO, null);
+  clearTimeout(busyRetryTimer);
+  busyRetryTimer = null;
+  session.disconnect();
+});
+
+// DEVICE BUSY ends the session's own attempts; retry while the user wants a link.
+setInterval(() => {
+  const status = session.getStatus();
+  if (
+    autoConnect && !status.desired && !status.emergency && !busyRetryTimer &&
+    status.lastEvent === "DEVICE_BUSY"
+  ) {
+    busyRetryTimer = setTimeout(() => {
+      busyRetryTimer = null;
+      const now = session.getStatus();
+      if (autoConnect && !now.desired && !now.emergency) connectNow();
+    }, BUSY_RETRY_MS);
+  }
+}, 500);
+
+if (autoConnect) setTimeout(connectNow, 300);
 espFollowBtn.addEventListener("click", () => {
   session.setFollow(!session.getStatus().follow);
   updateWakeLock();

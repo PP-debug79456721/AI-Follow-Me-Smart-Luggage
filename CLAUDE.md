@@ -80,7 +80,8 @@ but nothing turns (relay coil and B+ come from the battery).
   power saving off, or the ESP32 cannot connect.
 - Laptop (dev PC, Windows): Wi-Fi IP `192.168.137.158` (DHCP, may change; check `ipconfig`,
   adapter "Wireless LAN adapter Wi-Fi").
-- ESP32 IP: printed on serial as `WebSocket server: ws://<ip>:81/ws` (was .107, later .225; changes).
+- ESP32 IP: **static `192.168.137.50`** (`config.h` kUseStaticIp / kStaticIp; was DHCP .107, .225).
+  The page defaults to `ws://192.168.137.50:81/ws`. Serial still prints `WebSocket server: ws://<ip>:81/ws`.
 
 ### Web app
 The page used on the bench is served from **`C:\follow-app`** on the laptop (a copy of `index.html`,
@@ -117,6 +118,9 @@ that differs from the repo (`status.lastEvent === "DEVICE_BUSY"` for the DEVICE 
   Enabled, Relaunch. iPhone is not supported (needs HTTPS, which blocks `ws://`).
 - DEMO mode: add `?mode=demo` (label shows "· DEMO"), see 6.
 - Only ONE page may be connected to the ESP32 at a time; a second one causes DEVICE BUSY and jerky motion.
+- Convenience (app.js): the URL is remembered (localStorage); after CONNECT the page reconnects by itself
+  (also on reload and after DEVICE BUSY) until DISCONNECT. FOLLOW is never re-armed automatically.
+  Screen Wake Lock keeps the phone screen on while FOLLOW is on. busyMaxMs 4000.
 
 Flow: START CAMERA -> stand 2-3 m away -> tap the owner's box (TRACKING) -> URL `ws://<esp32-ip>:81/ws`
 -> CONNECT -> `CONNECTED (STOP)` -> ARM / FOLLOW.
@@ -137,7 +141,7 @@ before Upload. Small changes are safer made inside the IDE.
 - `bts_motor_hal.h` (new): the only pin writer for motors, called only by `SafetyKernel`.
   STOP = duty 0 + EN low at once; movement = relay on, 250 ms settle, EN high, soft-start ramp.
   Relay stays on 5 s after the last movement. LEDC write failure latches everything off.
-- `config.h`: real pins, one EN per side, `kDriveDuty 0.45`, `kDutyMax 0.60` (static_assert),
+- `config.h`: real pins, one EN per side, `kDriveDuty 0.60`, `kDutyMax 0.80` (static_assert),
   `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.10`, `kUltrasonicInstalled false`.
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`

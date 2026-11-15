@@ -129,6 +129,12 @@ void setup() {
   enableLoopWDT();                    // a stuck loop resets the chip (EN pull-downs -> drivers off)
 
   WiFi.mode(WIFI_STA);
+  if (kUseStaticIp) {
+    const IPAddress ip(kStaticIp[0], kStaticIp[1], kStaticIp[2], kStaticIp[3]);
+    const IPAddress gw(kGatewayIp[0], kGatewayIp[1], kGatewayIp[2], kGatewayIp[3]);
+    const IPAddress mask(kSubnetMask[0], kSubnetMask[1], kSubnetMask[2], kSubnetMask[3]);
+    if (!WiFi.config(ip, gw, mask, gw)) Serial.println("static IP config FAILED: using DHCP");
+  }
   WiFi.setSleep(false);               // PROPOSAL: lower, steadier latency
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
