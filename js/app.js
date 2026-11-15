@@ -3,7 +3,8 @@ import {
   startOwnerAI,
   stopOwnerAI,
   setMotionDecisionListener,
-  getSelectedTarget
+  getSelectedTarget,
+  STOP_HEIGHT_OVERRIDE
 } from "./ai-owner.js";
 import { createEsp32Session } from "./esp32-session.js";
 import { createMotionSmoother } from "./motion-smoother.js";
@@ -211,7 +212,11 @@ const session = createEsp32Session({
 // DEMO mode (open the page with ?mode=demo): a detector miss is bridged for up
 // to 1 s instead of 0.4 s. Needs the firmware's ProtocolConfig ageClaimMaxMs
 // >= 1200 and evidenceMaxMs >= 1500 (esp32-follow.ino), see DEMO_LINK below.
-const smoother = createMotionSmoother(DEMO_MODE ? { holdMs: 1000 } : {});
+const smoother = createMotionSmoother({
+  ...(DEMO_MODE ? { holdMs: 1000 } : {}),
+  // ?stop=: resume 0.10 below the stop height (default stop 0.80 / resume 0.70)
+  ...(STOP_HEIGHT_OVERRIDE ? { resumeHeightRatio: STOP_HEIGHT_OVERRIDE - 0.10 } : {})
+});
 
 setMotionDecisionListener(decision => {
 
@@ -225,7 +230,9 @@ setMotionDecisionListener(decision => {
       target ? target.lastSeenMs : null,
       target ? target.now : null
     );
-    setStatus("motorStatus", smooth.command);
+    // Box height in % of the frame: compare with the stop height (80 % or ?stop=).
+    const h = Number.isFinite(decision.heightRatio) ? ` · ${Math.round(decision.heightRatio * 100)}%` : "";
+    setStatus("motorStatus", smooth.command + h);
     session.setDecision(smooth.command, smooth.detectionTime);
   } catch (error) {
     console.error("ESP32 session failed; forcing STOP:", error);
@@ -396,6 +403,7 @@ function renderEspLink() {
 
   if (DEMO_MODE) label += " · DEMO";
   if (new URLSearchParams(location.search).get("lite") === "1") label += " · LITE";
+  if (STOP_HEIGHT_OVERRIDE) label += ` · STOP ${Math.round(STOP_HEIGHT_OVERRIDE * 100)}%`;
   setStatus("espLinkState", mock && status.desired ? `${label} - MOCK, NOT HARDWARE` : label);
   setStatus("espStatus", label);
 
