@@ -53,8 +53,12 @@ ESP32 Dev Module (NA709 30-pin on CB005 terminal board). Pins (match `firmware/e
 
 | Signal | GPIO |
 |---|---|
-| Left BTS7960: RPWM / LPWM / EN (R_EN+L_EN tied, 10k to GND) | 25 / 26 / 13 |
-| Right BTS7960: RPWM / LPWM / EN (tied, 10k to GND) | 27 / 14 / 33 |
+| Physical LEFT wheel BTS7960: RPWM / LPWM / EN (R_EN+L_EN tied, 10k to GND) | 27 / 14 / 33 |
+| Physical RIGHT wheel BTS7960: RPWM / LPWM / EN (tied, 10k to GND) | 25 / 26 / 13 |
+
+The wiring diagram calls 25/26/13 "left", but on the bench that board drives the RIGHT wheel
+(LEFT commands turned right). config.h is swapped to the physical wheels. Before the swap,
+kRightGain was boosting the physical LEFT wheel; the "weak right wheel" findings predate this.
 | Relay (BC337 base -> relay coil pin 85) | 32 |
 | E-STOP status input (planned) | 23 (not wired) |
 | HC-SR04 trig/echo (planned, echo needs 5V->3.3V divider) | 18/34, 19/35 |
@@ -80,8 +84,11 @@ but nothing turns (relay coil and B+ come from the battery).
   power saving off, or the ESP32 cannot connect.
 - Laptop (dev PC, Windows): Wi-Fi IP `192.168.137.158` (DHCP, may change; check `ipconfig`,
   adapter "Wireless LAN adapter Wi-Fi").
-- ESP32 IP: **static `192.168.137.50`** (`config.h` kUseStaticIp / kStaticIp; was DHCP .107, .225).
-  The page defaults to `ws://192.168.137.50:81/ws`. Serial still prints `WebSocket server: ws://<ip>:81/ws`.
+- ESP32 IP: DHCP, printed on serial as `WebSocket server: ws://<ip>:81/ws`. `config.h` kUseStaticIp
+  (192.168.137.50) works only on the Windows hotspot; it is false now.
+- Later on 2026-11-15 the bench moved to a phone hotspot (10.139.180.x, laptop 10.139.180.182) because
+  the Windows hotspot added ~1 s RTT spikes. Phone page RTT was 300+ ms vs laptop 10-30 ms on the same
+  Wi-Fi (phone main thread busy with MediaPipe) -> `?lite=1` (no face detection, 480x360).
 
 ### Web app
 The page used on the bench is served from **`C:\follow-app`** on the laptop (a copy of `index.html`,

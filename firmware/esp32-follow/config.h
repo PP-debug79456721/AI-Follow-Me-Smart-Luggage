@@ -25,8 +25,10 @@ struct SonarPins {
   int echo;   // HC-SR04 echo is 5 V: put it behind a divider (e.g. 1k/2k) to 3.3 V
 };
 
-constexpr BtsPins kLeftDriver{25, 26, 13};    // matches quick-spin / wiring diagram
-constexpr BtsPins kRightDriver{27, 14, 33};   // matches quick-spin / wiring diagram
+// Bench 2026-11-15: the diagram's "left" board (25/26/13) drives the RIGHT wheel.
+// LEFT commands turned right, so the assignment is swapped to match the real wheels.
+constexpr BtsPins kLeftDriver{27, 14, 33};    // physical LEFT wheel
+constexpr BtsPins kRightDriver{25, 26, 13};   // physical RIGHT wheel
 constexpr int kRelayPin = 32;                 // BC337 base -> relay coil pin 85
 
 // Forward direction per wheel. false: forward = RPWM. true: forward = LPWM.
@@ -60,7 +62,7 @@ constexpr uint32_t kStopDistanceMm = 400;
 // Network
 // Static IP so the app URL never changes (the hotspot's DHCP gave .107, .225, ...).
 // Pick an address the hotspot does not hand out to another device. false = DHCP.
-constexpr bool kUseStaticIp = true;
+constexpr bool kUseStaticIp = false;   // true only on the Windows hotspot 192.168.137.x
 constexpr uint8_t kStaticIp[4] = {192, 168, 137, 50};
 constexpr uint8_t kGatewayIp[4] = {192, 168, 137, 1};   // the hotspot
 constexpr uint8_t kSubnetMask[4] = {255, 255, 255, 0};
