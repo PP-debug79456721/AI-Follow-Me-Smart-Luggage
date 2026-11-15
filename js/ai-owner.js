@@ -21,7 +21,9 @@ import {
   boxIoU,
   colorSignature,
   signatureSimilarity,
-  blendSignature,
+  albumScore,
+  learnIntoAlbum,
+  ALBUM_DEFAULTS,
   createAgreement,
   RECOGNIZER_DEFAULTS
 } from "./owner-recognizer.js";
@@ -766,7 +768,8 @@ export function startOwnerAI() {
 // user taps someone or presses FIND OWNER.
 
 const OWNER_STORE = "owner.face.v1";      // 128-D vectors only, never images
-const CLOTH_STORE = "owner.cloth.v1";     // colour histograms only, never images
+const CLOTH_STORE = "owner.cloth.v2";     // album of colour histograms only, never images
+const CLOTH_ADD_GAP_MS = 2000;            // at most one new automatic view per 2 s
 const ENROL_SAMPLES = 5;
 const FACE_ROUND_MS = 700;                // at most one SFace round per 0.7 s
 const MIN_FACE_PX = 40;                   // smaller faces are skipped
@@ -775,7 +778,8 @@ const SIGNATURE_W = 24;
 const SIGNATURE_H = 48;
 
 let ownerFaces = loadOwnerFaces();
-let ownerSignature = loadClothSignature();
+let ownerAlbum = loadClothAlbum();       // [view0 (REMEMBER CLOTHES), learned views...]
+let lastClothAddAt = 0;
 let clothScore = NaN;                     // fresh crop of the followed box vs the remembered clothes
 let lastClothSaveAt = 0;
 let ownerAutoPaused = false;
@@ -820,19 +824,25 @@ function loadOwnerFaces() {
   }
 }
 
-function loadClothSignature() {
+function loadClothAlbum() {
   try {
-    const raw = JSON.parse(localStorage.getItem(CLOTH_STORE) || "null");
-    return raw && Array.isArray(raw.upper) && Array.isArray(raw.lower) ? raw : null;
+    localStorage.removeItem("owner.cloth.v1");   // v1 was saved unreadably (typed arrays); drop it
+    const raw = JSON.parse(localStorage.getItem(CLOTH_STORE) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(v => v && Array.isArray(v.upper) && Array.isArray(v.lower) &&
+                   v.upper.length === v.lower.length && v.upper.every(Number.isFinite))
+      .slice(0, ALBUM_DEFAULTS.maxViews);
   } catch {
-    return null;
+    return [];
   }
 }
 
-function saveClothSignature() {
+function saveClothAlbum() {
   try {
-    if (ownerSignature) localStorage.setItem(CLOTH_STORE, JSON.stringify(ownerSignature));
-    else localStorage.removeItem(CLOTH_STORE);
+    if (ownerAlbum.length === 0) { localStorage.removeItem(CLOTH_STORE); return; }
+    const plain = ownerAlbum.map(v => ({ upper: Array.from(v.upper), lower: Array.from(v.lower) }));
+    localStorage.setItem(CLOTH_STORE, JSON.stringify(plain));
   } catch { /* storage full/blocked */ }
 }
 
@@ -868,9 +878,11 @@ function ownerStatusText() {
   if (OWNER_FEATURES) {
     parts.push(ownerFaces.length ? `หน้าเจ้าของ ${ownerFaces.length} ภาพ` : "ยังไม่ลงทะเบียนหน้า");
   }
-  if (!ownerSignature) parts.push("ยังไม่จำเสื้อผ้า");
-  else if (followingSomeone() && Number.isFinite(clothScore)) parts.push(`เสื้อผ้าตรง ${clothScore.toFixed(2)}`);
-  else parts.push("จำเสื้อผ้าแล้ว");
+  if (ownerAlbum.length === 0) parts.push("ยังไม่จำเสื้อผ้า");
+  else {
+    parts.push(`จำเสื้อผ้า ${ownerAlbum.length}/${ALBUM_DEFAULTS.maxViews} มุม`);
+    if (followingSomeone() && Number.isFinite(clothScore)) parts.push(`ตรง ${clothScore.toFixed(2)}`);
+  }
   if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
   if (ownerLastEvent) parts.push(ownerLastEvent + score);
   return parts.join(" · ");
@@ -927,11 +939,16 @@ function ownerAfterPersons(timestamp) {
       lastSignatureAt = timestamp;
       const sig = signatureOf(target.box);
       if (sig) {
-        clothScore = ownerSignature ? signatureSimilarity(ownerSignature, sig) : NaN;
-        ownerSignature = blendSignature(ownerSignature, sig, ownerSignature ? 0.1 : 1);
-        if (timestamp - lastClothSaveAt >= 5000) {
+        clothScore = albumScore(ownerAlbum, sig);
+        // New views (owner turned around, jacket opened) are added at most every
+        // 2 s; very different crops are not learned (possible identity swap).
+        const canAdd = timestamp - lastClothAddAt >= CLOTH_ADD_GAP_MS;
+        const r = learnIntoAlbum(ownerAlbum, sig, canAdd ? {} : { newViewAbove: ALBUM_DEFAULTS.sameViewAbove });
+        ownerAlbum = r.album;
+        if (r.action === "add") { lastClothAddAt = timestamp; saveClothAlbum(); }
+        else if (r.action === "blend" && timestamp - lastClothSaveAt >= 5000) {
           lastClothSaveAt = timestamp;
-          saveClothSignature();
+          saveClothAlbum();
         }
       }
     }
@@ -944,11 +961,11 @@ function ownerAfterPersons(timestamp) {
   clothScore = NaN;
 
   // Re-acquire from behind (clothing), only after this session followed the owner.
-  if (ownerAutoPaused || !ownerSignature || lastPersonBoxes.length === 0) return;
+  if (ownerAutoPaused || ownerAlbum.length === 0 || lastPersonBoxes.length === 0) return;
 
   const candidates = lastPersonBoxes.slice(0, 4).map(b => ({
     box: b,
-    score: signatureSimilarity(ownerSignature, signatureOf(b))
+    score: albumScore(ownerAlbum, signatureOf(b))
   }));
   const best = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
   if (Number.isFinite(best)) ownerLastScore = best;
@@ -1053,17 +1070,40 @@ export function startOwnerEnrolment() {
 export function forgetOwner() {
   ownerFaces = [];
   saveOwnerFaces();
-  ownerSignature = null;
+  ownerAlbum = [];
   clothScore = NaN;
-  saveClothSignature();
+  saveClothAlbum();
   enrolRemaining = 0;
   ownerLastScore = NaN;
   ownerLastEvent = "ลบข้อมูลเจ้าของแล้ว";
   resetOwnerAgreements();
 }
 
-/* UI (method A): remember the clothes of the person followed RIGHT NOW,
-   replacing the old signature. Stand alone in the picture (nobody overlapping). */
+function currentOwnerCrop() {
+  const target = tracker.getTarget();
+  if (!target || target.state !== "TRACKING" || !target.matched) {
+    ownerLastEvent = "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)";
+    return null;
+  }
+  return signatureOf(target.box);
+}
+
+/* UI: add the CURRENT view of the followed person (e.g. turn around and press
+   it again for the back / sides). Manual, so no similarity check. */
+export function addOwnerClothesView() {
+  if (!OWNER_HOST) return { ok: false, reason: "NOT_LOCALHOST" };
+  const sig = currentOwnerCrop();
+  if (!sig) return { ok: false, reason: "SELECT_OWNER_FIRST" };
+  if (ownerAlbum.length >= ALBUM_DEFAULTS.maxViews) ownerAlbum.splice(1, 1);
+  ownerAlbum.push(sig);
+  saveClothAlbum();
+  ownerLastEvent = `เพิ่มมุมเสื้อผ้าแล้ว (${ownerAlbum.length})`;
+  resetOwnerAgreements();
+  return { ok: true };
+}
+
+/* UI (method A): start a NEW clothing album from the person followed RIGHT NOW
+   (new outfit). Stand alone in the picture (nobody overlapping). */
 export function rememberOwnerClothes() {
   if (!OWNER_HOST) return { ok: false, reason: "NOT_LOCALHOST" };
   const target = tracker.getTarget();
@@ -1073,9 +1113,9 @@ export function rememberOwnerClothes() {
   }
   const sig = signatureOf(target.box);
   if (!sig) return { ok: false, reason: "NO_PIXELS" };
-  ownerSignature = sig;
+  ownerAlbum = [sig];
   clothScore = 1;
-  saveClothSignature();
+  saveClothAlbum();
   ownerLastEvent = "จำเสื้อผ้าใหม่แล้ว";
   ownerLastScore = NaN;
   resetOwnerAgreements();

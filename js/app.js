@@ -8,6 +8,7 @@ import {
   ownerFeaturesEnabled,
   ownerClothesEnabled,
   rememberOwnerClothes,
+  addOwnerClothesView,
   startOwnerEnrolment,
   findOwner,
   forgetOwner
@@ -443,6 +444,7 @@ if (ownerClothesEnabled()) {
     if (!r.ok) setStatus("ownerStatus", r.reason === "SELECT_OWNER_FIRST"
       ? "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)" : "จำเสื้อผ้าไม่สำเร็จ");
   });
+  document.getElementById("ownerViewBtn").addEventListener("click", () => addOwnerClothesView());
   document.getElementById("ownerEnrolBtn").addEventListener("click", () => {
     const r = startOwnerEnrolment();
     if (!r.ok) setStatus("ownerStatus", r.reason === "SELECT_OWNER_FIRST"

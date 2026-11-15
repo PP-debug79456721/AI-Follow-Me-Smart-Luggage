@@ -184,14 +184,16 @@ before Upload. Small changes are safer made inside the IDE.
 - Stop height: bench default 0.95 (BENCH_STOP_HEIGHT in ai-owner.js; motion-decision default stays 0.80),
   `?stop=0.80` overrides. Resume 0.08 below it (95 % / 87 %; 0.05 stop-went). MOTOR COMMAND shows the box height %.
 
-- **Owner recognition (localhost only, not in lite mode)** — `js/owner-recognizer.js` (pure, 12 tests) +
+- **Owner recognition (localhost only, not in lite mode)** — `js/owner-recognizer.js` (pure, 14 tests) +
   owner section in `ai-owner.js` + buttons ENROL OWNER FACE / FIND OWNER / FORGET OWNER (index.html, app.js).
   Face: SFace via model-policy (needs `http://localhost:8000/?modelMode=development`), 5 samples stored as
   128-D vectors in localStorage `owner.face.v1` (no images), cosine >= 0.363, 3 of 5 rounds, margin 0.05,
   at most 2 faces per 0.7 s. Back view: clothing colour signature (torso + legs hue/sat histograms) of the
   followed box, refreshed every 0.5 s only while it overlaps nobody, Bhattacharyya >= 0.80, margin 0.06,
   3 of 5 rounds. Method A (clothing) works without the face model and also in lite mode: REMEMBER CLOTHES
-  takes a fresh signature of the followed box (stored in localStorage `owner.cloth.v1`, histograms only);
+  starts a new clothing ALBUM (up to 8 views: back/front/side/light; `learnIntoAlbum` in owner-recognizer.js)
+  stored in localStorage `owner.cloth.v2` (histograms only). ADD VIEW adds the current view manually; while
+  TRACKING alone, crops >= 0.88 blend into a view, 0.55-0.88 become a new view (max 1 per 2 s), < 0.55 skipped;
   OWNER line shows `เสื้อผ้าตรง <score>` while following and the best candidate score while LOST.
   Auto-select only while NOT_SELECTED/LOST, never after CLEAR SELECTION until a tap or
   FIND OWNER; ambiguous -> nobody. Thresholds are starting values, not tuned on the real camera.

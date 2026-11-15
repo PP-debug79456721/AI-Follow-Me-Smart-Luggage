@@ -191,6 +191,56 @@ export function blendSignature(old, fresh, rate = 0.1) {
 }
 
 // --------------------------------------------------------------------------
+// Clothing album: several views of the owner (back, front, side, other light)
+// --------------------------------------------------------------------------
+
+export const ALBUM_DEFAULTS = Object.freeze({
+  maxViews: 8,          // views kept (view 0 = REMEMBER CLOTHES, never dropped)
+  sameViewAbove: 0.88,  // fresh crop this close to a view -> slowly blend into it
+  newViewAbove: 0.55,   // below this it is probably NOT the owner -> not learned
+  rate: 0.1
+});
+
+/* Best similarity of a signature against every view of the album. */
+export function albumScore(album, sig) {
+  let best = NaN;
+  for (const view of album || []) {
+    const s = signatureSimilarity(view, sig);
+    if (Number.isFinite(s) && !(s <= best)) best = s;
+  }
+  return best;
+}
+
+/*
+ * Learn a fresh crop of the person being followed. Returns
+ * { album, action: "blend" | "add" | "skip", score }.
+ * - close to an existing view: blend into that view (light drift);
+ * - different but plausible (turned around, jacket open): add a new view;
+ * - very different: skip (likely an identity swap in the tracker).
+ * When full, the oldest learned view is replaced (view 0 stays).
+ */
+export function learnIntoAlbum(album, sig, options = {}) {
+  const o = { ...ALBUM_DEFAULTS, ...options };
+  const views = Array.isArray(album) ? album.slice() : [];
+  if (!sig) return { album: views, action: "skip", score: NaN };
+  if (views.length === 0) return { album: [sig], action: "add", score: NaN };
+
+  let best = NaN, bestIdx = -1;
+  views.forEach((v, i) => {
+    const s = signatureSimilarity(v, sig);
+    if (Number.isFinite(s) && !(s <= best)) { best = s; bestIdx = i; }
+  });
+  if (!Number.isFinite(best) || best < o.newViewAbove) return { album: views, action: "skip", score: best };
+  if (best >= o.sameViewAbove) {
+    views[bestIdx] = blendSignature(views[bestIdx], sig, o.rate);
+    return { album: views, action: "blend", score: best };
+  }
+  if (views.length >= o.maxViews) views.splice(1, 1);   // drop the oldest learned view
+  views.push(sig);
+  return { album: views, action: "add", score: best };
+}
+
+// --------------------------------------------------------------------------
 // Decision over several rounds
 // --------------------------------------------------------------------------
 

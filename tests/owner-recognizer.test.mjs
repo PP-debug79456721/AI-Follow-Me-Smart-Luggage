@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   boxIoU, personForFace, cosine, bestFaceScore,
   colorSignature, signatureSimilarity, blendSignature,
+  albumScore, learnIntoAlbum,
   createAgreement, RECOGNIZER_DEFAULTS
 } from "../js/owner-recognizer.js";
 
@@ -121,4 +122,38 @@ test("agreement: winners on different people do not add up", () => {
 test("agreement: NaN scores are ignored", () => {
   const g = agreement();
   for (let i = 0; i < 5; i += 1) assert.equal(g.push([{ box: box(0, 0, 50, 100), score: NaN }]), null);
+});
+
+test("album: blend similar, add a plausible new view, skip a different person", () => {
+  const front = colorSignature(crop(40, 100, RED, BLUE), 40, 100);
+  const nearFront = blendSignature(front, colorSignature(crop(40, 100, RED, BLACK), 40, 100), 0.05);
+  const back = blendSignature(front, colorSignature(crop(40, 100, GREEN, BLUE), 40, 100), 0.5);
+  const stranger = colorSignature(crop(40, 100, GREEN, BLACK), 40, 100);
+
+  let r = learnIntoAlbum([], front);
+  assert.equal(r.action, "add");
+  r = learnIntoAlbum(r.album, nearFront);
+  assert.equal(r.action, "blend");
+  assert.equal(r.album.length, 1);
+  r = learnIntoAlbum(r.album, back);
+  assert.equal(r.action, "add");
+  assert.equal(r.album.length, 2);
+  const before = r.album.length;
+  r = learnIntoAlbum(r.album, stranger);
+  assert.equal(r.action, "skip");
+  assert.equal(r.album.length, before);
+  assert.ok(albumScore(r.album, back) > 0.99);
+  assert.ok(albumScore(r.album, stranger) < 0.55);
+  assert.ok(Number.isNaN(albumScore([], front)));
+});
+
+test("album keeps view 0 and at most maxViews", () => {
+  const base = colorSignature(crop(40, 100, RED, BLUE), 40, 100);
+  let album = [base];
+  for (let k = 1; k <= 6; k += 1) {
+    const v = blendSignature(base, colorSignature(crop(40, 100, GREEN, BLUE), 40, 100), 0.12 * k);
+    album = learnIntoAlbum(album, v, { maxViews: 3, sameViewAbove: 0.999, newViewAbove: 0 }).album;
+  }
+  assert.equal(album.length, 3);
+  assert.equal(album[0], base);
 });
