@@ -37,7 +37,7 @@ constexpr bool kLeftInvert = false;
 constexpr bool kRightInvert = false;
 
 // ---- drive settings (start low, raise in small steps)
-constexpr float kDriveDuty = 0.60f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
+constexpr float kDriveDuty = 0.70f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
 constexpr float kDutyMax = 0.80f;             // hard ceiling, kDriveDuty is clamped to this
 constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty * this (0.30 left the inner wheel stalled)
 // Per-wheel gain: compensates a weaker motor/gearbox. Raise the SLOWER wheel's gain
@@ -45,7 +45,7 @@ constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty *
 // The result is still clamped to kDutyMax.
 constexpr float kLeftGain = 1.00f;
 constexpr float kRightGain = 1.10f;           // bench: right wheel slower even with wheels lifted (1.20 overshot)
-constexpr float kRampPerSecond = 1.0f;        // duty change per second when speeding up (soft start)
+constexpr float kRampPerSecond = 2.5f;        // duty change per second when speeding up (soft start)
 constexpr uint32_t kPwmFreqHz = 5000;
 constexpr uint8_t kPwmBits = 8;
 constexpr uint32_t kRelaySettleMs = 250;      // relay on -> wait before enabling the drivers
@@ -55,9 +55,9 @@ constexpr uint32_t kRelayHoldMs = 5000;       // keep relay on this long after t
 // false: NO obstacle check (sensors not wired yet). The interlock is fed "clear"
 //        readings so only STOP/ESTOP/link-loss/timeouts stop the motors.
 // true:  two HC-SR04 on kSonar; anything closer than kStopDistanceMm stops the motors.
-constexpr bool kUltrasonicInstalled = false;
+constexpr bool kUltrasonicInstalled = true;
 constexpr SonarPins kSonar[2] = {{18, 34}, {19, 35}};   // PROPOSAL, UNVERIFIED
-constexpr uint32_t kStopDistanceMm = 400;
+constexpr uint32_t kStopDistanceMm = 500;
 
 // Network
 // Static IP so the app URL never changes (the hotspot's DHCP gave .107, .225, ...).

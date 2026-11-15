@@ -22,7 +22,7 @@ Language: the owner works in **Thai**. Answer in Thai unless asked otherwise.
 | Phone camera (Android Chrome) | Working via chrome://flags (see 4) |
 | Choosing the owner | **Manual**: tap the person's box on screen |
 | **Face recognition of the owner** | **NOT DONE** (today's original goal) |
-| Obstacle sensors (HC-SR04) | Not wired; firmware support exists but is OFF |
+| Obstacle sensors (2x AB043 / HC-SR04) | Enabled in firmware (stop at 500 mm); wiring being done |
 | E-STOP status to the ESP32 (GPIO23) | Not wired (see 3) |
 | Right wheel slower than left, even lifted | Compensated in software (`kRightGain`); hardware cause not found |
 
@@ -151,8 +151,10 @@ before Upload. Small changes are safer made inside the IDE.
 - `bts_motor_hal.h` (new): the only pin writer for motors, called only by `SafetyKernel`.
   STOP = duty 0 + EN low at once; movement = relay on, 250 ms settle, EN high, soft-start ramp.
   Relay stays on 5 s after the last movement. LEDC write failure latches everything off.
-- `config.h`: real pins, one EN per side, `kDriveDuty 0.60`, `kDutyMax 0.80` (static_assert),
-  `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.10`, `kUltrasonicInstalled false`.
+- `config.h`: real pins, one EN per side, `kDriveDuty 0.70`, `kDutyMax 0.80` (static_assert),
+  `kRampPerSecond 2.5`, `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.10`,
+  `kUltrasonicInstalled true` (2x AB043 = HC-SR04, trig 18/19, echo 34/35 via 1k/2k), `kStopDistanceMm 500`.
+  Serial adds `sonar=<mm|clear|NO_ECHO>/<...>`. NO_ECHO blocks motion (fail-safe).
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`
   can block ~10 s and caused loop stalls, link timeouts and a task-watchdog reset.
