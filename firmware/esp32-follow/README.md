@@ -1,8 +1,26 @@
-# esp32-follow: firmware skeleton (PHASE 1)
+# esp32-follow: firmware (PHASE 2, motor output enabled)
 
-> **MOTOR OUTPUT IS PERMANENTLY DISABLED. THIS FIRMWARE IS NOT READY FOR MOTOR OPERATION.**
-> **It has never been built with the ESP32 toolchain, flashed, or run on a board.**
-> **Every GPIO assignment is UNVERIFIED.**
+> **Motor output is ENABLED** through `BtsMotorHal` (`bts_motor_hal.h`): 2x BTS7960 + relay on GPIO32.
+> Pins in `config.h` match the wiring diagram and were spun with `quick-spin`.
+> **Obstacle check is OFF** until HC-SR04 sensors are wired and `kUltrasonicInstalled = true`.
+> The phase-1 originals are kept in `backup-phase1/`.
+
+## Phase 2 changes
+
+| File | Change |
+|---|---|
+| `config.h` | Real pins (L 25/26/13, R 27/14/33, relay 32), one EN per side, drive duty 0.25, turn ratio, ramp, direction flags, ultrasonic switch |
+| `bts_motor_hal.h` | NEW. Real driver. STOP = duty 0 + EN low at once; movement = relay on, settle 250 ms, EN high, soft-start ramp. LEDC write failure latches everything off |
+| `sonar_sources.h` | NEW. `HcSr04Source` (two sensors, alternating) and `NoSensorClearSource` (no protection, used when sensors are absent) |
+| `esp32-follow.ino` | Uses `BtsMotorHal`, calls `hal.service()` after each kernel tick, loop watchdog on, status line shows relay and duty |
+
+Unchanged: `protocol.h`, `safety.h` (still the ONLY writer of motor output), `ultrasonic.h`, WebSocket files.
+Stops: STOP/ESTOP from the app, 600 ms movement watchdog, 600 ms session liveness, socket closed,
+Wi-Fi lost, obstacle (if enabled), loop watchdog reset. Hardware kill: E-STOP switch in the relay coil.
+
+---
+
+## Phase 1 notes (historical)
 
 ## What exists
 

@@ -1,15 +1,14 @@
-// ESP32 Follow-Me firmware: PHASE 1 SKELETON.
+// ESP32 Follow-Me firmware: PHASE 2 (MOTOR OUTPUT ENABLED).
 //
-//   *** MOTOR OUTPUT IS PERMANENTLY DISABLED IN THIS PHASE. ***
-//   *** THIS FIRMWARE IS NOT READY FOR MOTOR OPERATION.      ***
+// Protocol v2 (a port of js/mock-esp32.js), the safety kernel, the obstacle interlock and a
+// WebSocket server, now driving two BTS7960 boards and the motor-power relay through
+// BtsMotorHal (bts_motor_hal.h). The SafetyKernel is still the ONLY writer of motor output.
 //
-// It runs Protocol v2 (a port of js/mock-esp32.js), the safety kernel, the obstacle
-// interlock logic and a WebSocket server, but it touches NO GPIO: the motor HAL is the locked
-// one and the ultrasonic source reports "unavailable" (so the interlock stays blocked).
+// Stops: app STOP/ESTOP, 600 ms movement watchdog, 600 ms session liveness, lost socket,
+// lost Wi-Fi, obstacle interlock (only if kUltrasonicInstalled), loop-task watchdog reset.
+// Hardware kill independent of this code: the E-STOP switch in the relay coil circuit.
 //
-// STATUS: stub-checked on a host computer only. It has NOT been built with the ESP32
-// toolchain, NOT flashed and NOT run on a board. GPIO assignments in config.h are
-// UNVERIFIED. See README.md.
+// Settings (duty, turn ratio, direction, ultrasonic on/off) are in config.h.
 //
 // Needs no extra library: board "ESP32 Dev Module" with the Arduino-ESP32 core.
 
@@ -23,6 +22,8 @@
 #include "protocol.h"
 #include "safety.h"
 #include "ultrasonic.h"
+#include "bts_motor_hal.h"
+#include "sonar_sources.h"
 #include "ws_server.h"
 
 #if !__has_include("wifi_secrets.h")
@@ -51,9 +52,17 @@ struct App;
 
 EspRandom rng;
 WsSink sink;
-LockedMotorHal hal;                 // the ONLY HAL in this phase: no GPIO
-Interlock interlock;                // stop distance unset: blocked
-NullUltrasonicSource sonar;         // reports nothing: blocked
+BtsMotorHal hal;                    // real BTS7960 + relay driver (written only by the kernel)
+InterlockConfig interlockConfig() {
+  InterlockConfig c;
+  c.stopDistanceMm = kStopDistanceMm;
+  return c;
+}
+Interlock interlock(interlockConfig());
+HcSr04Source hcsr04;
+NoSensorClearSource noSensor;
+UltrasonicSource& sonar = kUltrasonicInstalled ? static_cast<UltrasonicSource&>(hcsr04)
+                                               : static_cast<UltrasonicSource&>(noSensor);
 Protocol* protocol = nullptr;
 SafetyKernel* kernel = nullptr;
 WsServer* wsServer = nullptr;
@@ -98,9 +107,18 @@ void wifiMaintain(double now) {
 }  // namespace
 
 void setup() {
+  hal.latchOutputsLow();              // FIRST: relay, EN and PWM pins LOW before anything else
   Serial.begin(115200);
   Serial.println();
-  Serial.println("esp32-follow PHASE 1: MOTOR OUTPUT LOCKED, GPIO UNVERIFIED, NOT READY FOR MOTORS");
+  Serial.println("esp32-follow PHASE 2: MOTOR OUTPUT ENABLED");
+  if (!hal.begin()) Serial.println("PWM setup FAILED: motor output stays OFF");
+  if (kUltrasonicInstalled) {
+    hcsr04.begin();
+    Serial.println("obstacle check: HC-SR04 x2");
+  } else {
+    Serial.println("obstacle check: OFF (kUltrasonicInstalled = false)");
+  }
+  enableLoopWDT();                    // a stuck loop resets the chip (EN pull-downs -> drivers off)
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);               // PROPOSAL: lower, steadier latency
@@ -129,6 +147,7 @@ void loop() {
   }
 
   if (kernel) kernel->tick(now);      // protocol timers, then the interlock, then the single output write
+  hal.service();                      // relay sequencing and soft-start ramp of the last kernel command
 
   if (now - lastReport >= 1000) {
     lastReport = now;
@@ -138,7 +157,25 @@ void loop() {
     Serial.print(kernel ? motorName(kernel->effectiveMotor()) : "?");
     Serial.print(" interlock=");
     Serial.print(blockReasonName(interlock.reason()));
-    Serial.println(" output=LOCKED");
+    Serial.print(" relay=");
+    Serial.print(hal.relayOn() ? "ON" : "OFF");
+    Serial.print(" dutyL=");
+    Serial.print(hal.dutyLeft(), 2);
+    Serial.print(" dutyR=");
+    Serial.print(hal.dutyRight(), 2);
+    Serial.print(hal.fault() ? " output=FAULT" : " output=LIVE");
+    if (protocol) {
+      const Counters& c = protocol->counters();
+      Serial.print(" stop=");
+      Serial.print(protocol->lastStopReason() ? protocol->lastStopReason() : "-");
+      Serial.print(" acc=");
+      Serial.print(c.accepted);
+      Serial.print(" rej=");
+      Serial.print(c.rejected);
+      Serial.print(" rate=");
+      Serial.print(c.rateLimited);
+    }
+    Serial.println();
   }
 
   delay(1);

@@ -145,8 +145,13 @@ let running = false;
 let lastInference = 0;
 let lastPersonInference = 0;
 
-const INFERENCE_INTERVAL = 250;
-const PERSON_INTERVAL = 500;
+// Person detection must be faster than the ESP32 link's evidence limit
+// (esp32-link.js ageClaimMaxMs = 450 ms): a movement decision older than that
+// is sent as STOP. At 500 ms every decision went stale before the next
+// detection, so the wheels only got short pulses. 200 ms keeps the age of a
+// healthy target at about 200-350 ms.
+const INFERENCE_INTERVAL = 100;
+const PERSON_INTERVAL = 200;
 
 // No new camera frame for this long = the image on screen is frozen.
 // Detection is then skipped, so nothing is "tracked" on a stale picture.

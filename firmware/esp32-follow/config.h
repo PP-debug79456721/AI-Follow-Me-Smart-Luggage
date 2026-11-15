@@ -1,42 +1,66 @@
-// Firmware configuration. EVERY GPIO ASSIGNMENT BELOW IS UNVERIFIED.
+// Firmware configuration.
 //
-// The pin numbers are PROPOSALS taken from general ESP32 30-pin references
-// (avoid flash pins 6-11, strapping pins 0/2/5/12/15, UART0 1/3; echo inputs
-// on input-only 34/35). They have NOT been matched to the NA709 board, the
-// CB005 screw terminals or any wiring. Nothing in this phase reads or drives
-// them: the motor HAL is locked (motor_hal.h) and the ultrasonic source is a
-// null source (ultrasonic.h). kPinsVerified must stay false until each pin is
-// confirmed by continuity and a boot-state measurement.
+// PHASE 2 (motor output enabled). Pins below match the owner's wiring diagram
+// (2x BTS7960 with R_EN+L_EN tied, relay via BC337) and were spun with quick-spin.
+// The ultrasonic pins are still PROPOSALS and are only used when
+// kUltrasonicInstalled = true.
 #pragma once
 
 #include <stdint.h>
 
 namespace follow {
 
-constexpr bool kPinsVerified = false;   // do not change without the wiring checklist
+constexpr bool kPinsVerified = false;   // wiring checklist still not recorded
 
+// One BTS7960 board: RPWM, LPWM, and ONE enable pin (R_EN and L_EN tied together,
+// 10k pull-down to GND on the board side so the driver is off during boot/reset).
 struct BtsPins {
-  int rpwm;   // PROPOSAL, UNVERIFIED
+  int rpwm;
   int lpwm;
-  int rEn;
-  int lEn;
+  int en;
 };
 
 struct SonarPins {
-  int trig;   // PROPOSAL, UNVERIFIED
-  int echo;   // input-only pin behind a divider or level shifter (UNVERIFIED)
+  int trig;
+  int echo;   // HC-SR04 echo is 5 V: put it behind a divider (e.g. 1k/2k) to 3.3 V
 };
 
-constexpr BtsPins kLeftDriver{25, 26, 27, 13};     // UNVERIFIED
-constexpr BtsPins kRightDriver{32, 33, 4, 21};     // UNVERIFIED
-constexpr SonarPins kSonar[2] = {{18, 34}, {19, 35}};   // UNVERIFIED
+constexpr BtsPins kLeftDriver{25, 26, 13};    // matches quick-spin / wiring diagram
+constexpr BtsPins kRightDriver{27, 14, 33};   // matches quick-spin / wiring diagram
+constexpr int kRelayPin = 32;                 // BC337 base -> relay coil pin 85
 
-// Network (PROPOSALS)
+// Forward direction per wheel. false: forward = RPWM. true: forward = LPWM.
+// If a wheel turns backwards on FORWARD, flip its flag (or swap M+/M- with power off).
+constexpr bool kLeftInvert = false;
+constexpr bool kRightInvert = false;
+
+// ---- drive settings (start low, raise in small steps)
+constexpr float kDriveDuty = 0.25f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
+constexpr float kDutyMax = 0.60f;             // hard ceiling, kDriveDuty is clamped to this
+constexpr float kTurnInnerFraction = 0.30f;   // inner wheel duty = kDriveDuty * this
+constexpr float kRampPerSecond = 1.0f;        // duty change per second when speeding up (soft start)
+constexpr uint32_t kPwmFreqHz = 5000;
+constexpr uint8_t kPwmBits = 8;
+constexpr uint32_t kRelaySettleMs = 250;      // relay on -> wait before enabling the drivers
+constexpr uint32_t kRelayHoldMs = 5000;       // keep relay on this long after the last movement
+
+// ---- ultrasonic obstacle interlock
+// false: NO obstacle check (sensors not wired yet). The interlock is fed "clear"
+//        readings so only STOP/ESTOP/link-loss/timeouts stop the motors.
+// true:  two HC-SR04 on kSonar; anything closer than kStopDistanceMm stops the motors.
+constexpr bool kUltrasonicInstalled = false;
+constexpr SonarPins kSonar[2] = {{18, 34}, {19, 35}};   // PROPOSAL, UNVERIFIED
+constexpr uint32_t kStopDistanceMm = 400;
+
+// Network
 constexpr uint16_t kWsPort = 81;
 constexpr const char* kWsPath = "/ws";
 
-// Safety kernel loop period target (PROPOSAL). Must stay far below the two
-// 600 ms protocol timers.
+// Safety kernel loop period target. Must stay far below the two 600 ms protocol timers.
 constexpr double kKernelTickMs = 10;
+
+static_assert(kDriveDuty > 0 && kDriveDuty <= kDutyMax, "kDriveDuty must be in (0, kDutyMax]");
+static_assert(kDutyMax <= 0.8f, "keep a margin below full power");
+static_assert(kTurnInnerFraction >= 0 && kTurnInnerFraction < 1, "inner fraction must be in [0, 1)");
 
 }  // namespace follow
