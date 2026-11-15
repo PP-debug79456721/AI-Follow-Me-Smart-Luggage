@@ -54,7 +54,7 @@ class WsServer {
   void poll(double now) {
     WiFiClient incoming = server_.available();
     if (incoming) {
-      closeClient(now);                    // replaces the previous socket
+      closeClient(now, "REPLACED");                    // replaces the previous socket
       client_ = incoming;
       client_.setNoDelay(true);
       used_ = 0;
@@ -65,7 +65,7 @@ class WsServer {
 
     if (!haveClient_) return;
     if (broken_ || !client_.connected()) {
-      closeClient(now);
+      closeClient(now, broken_ ? "SEND_ERROR" : "PEER_CLOSED");
       return;
     }
 
@@ -77,7 +77,7 @@ class WsServer {
 
     if (!handshaken_) {
       if (!tryHandshake()) {
-        if (used_ >= sizeof(buffer_)) closeClient(now);   // oversized request
+        if (used_ >= sizeof(buffer_)) closeClient(now, "HTTP_TOO_LARGE");   // oversized request
         return;
       }
     }
@@ -86,12 +86,12 @@ class WsServer {
       ws::Frame frame;
       const long consumed = ws::parseFrame(buffer_, used_, kMaxPayload, frame);
       if (consumed == ws::kIncomplete) {
-        if (used_ >= sizeof(buffer_)) { sendClose(1009); closeClient(now); }
+        if (used_ >= sizeof(buffer_)) { sendClose(1009); closeClient(now, "FRAME_TOO_LARGE"); }
         return;
       }
       if (consumed < 0) {
         sendClose(consumed == ws::kTooLarge ? 1009 : 1002);
-        closeClient(now);
+        closeClient(now, "BAD_FRAME");
         return;
       }
 
@@ -109,11 +109,11 @@ class WsServer {
           break;
         case ws::kClose:
           sendClose(1000);
-          closeClient(now);
+          closeClient(now, "CLOSE_FRAME");
           return;
         default:                           // binary: not used by Protocol v2
           sendClose(1003);
-          closeClient(now);
+          closeClient(now, "BINARY_FRAME");
           return;
       }
 
@@ -169,18 +169,32 @@ class WsServer {
     if (fd < 0) { broken_ = true; return false; }
     const int sent = ::send(fd, data, n, MSG_DONTWAIT);
     if (sent == static_cast<int>(n)) return true;
-    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { dropped_ += 1; return false; }
+    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS || errno == ENOMEM)) {
+      dropped_ += 1;                 // lwIP buffers full for a moment: lose this frame, keep the socket
+      return false;
+    }
+    lastErrno_ = sent < 0 ? errno : -1;   // -1 = partial send
     broken_ = true;
     return false;
   }
 
  public:
   uint32_t droppedFrames() const { return dropped_; }
+  uint32_t closes() const { return closes_; }
+  const char* lastCloseReason() const { return lastCloseReason_; }
 
  private:
 
-  void closeClient(double now) {
+  void closeClient(double now, const char* why = "CLOSED") {
     const bool wasOpen = haveClient_ && handshaken_;
+    if (haveClient_) {
+      closes_ += 1;
+      lastCloseReason_ = why;
+      Serial.print("WS close: ");
+      Serial.print(why);
+      if (strcmp(why, "SEND_ERROR") == 0) { Serial.print(" errno="); Serial.print(lastErrno_); }
+      Serial.println();
+    }
     if (haveClient_) client_.stop();
     haveClient_ = false;
     broken_ = false;
@@ -199,6 +213,9 @@ class WsServer {
   bool handshaken_ = false;
   bool broken_ = false;
   uint32_t dropped_ = 0;
+  uint32_t closes_ = 0;
+  const char* lastCloseReason_ = "-";
+  int lastErrno_ = 0;
 };
 
 }  // namespace follow

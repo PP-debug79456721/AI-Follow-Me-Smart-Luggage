@@ -206,6 +206,12 @@ void loop() {
       Serial.print(c.watchdogLatches);
       Serial.print(" drop=");
       Serial.print(wsServer ? wsServer->droppedFrames() : 0);
+      Serial.print(" wsclose=");
+      Serial.print(wsServer ? wsServer->closes() : 0);
+      Serial.print("/");
+      Serial.print(wsServer ? wsServer->lastCloseReason() : "-");
+      Serial.print(" rssi=");
+      Serial.print(WiFi.RSSI());
     }
     Serial.print(" maxgap=");
     Serial.print(static_cast<int>(maxLoopGapMs));
