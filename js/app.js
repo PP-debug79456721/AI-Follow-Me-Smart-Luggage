@@ -181,6 +181,16 @@ const session = createEsp32Session({
       return mockNetwork.createSocket(url);
     }
     return new WebSocket(url);
+  },
+  // Bench (phone on Wi-Fi): stalls of 0.6-1 s dropped ARM with the 600 ms
+  // protocol defaults. Only the CONNECTION may now be silent up to 1200 ms;
+  // motion still ends by the lease (evidenceMaxMs 700) when no fresh command
+  // arrives. MUST match ProtocolConfig in firmware/esp32-follow/esp32-follow.ino
+  // (movementWatchdogMs / sessionLivenessMs = 1200).
+  linkOptions: {
+    linkTimeoutMs: 1200,
+    handshakeTimeoutMs: 1200,
+    pendingTtlMs: 1200
   }
 });
 

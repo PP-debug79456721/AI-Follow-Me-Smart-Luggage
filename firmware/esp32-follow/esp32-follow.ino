@@ -134,7 +134,13 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   lastWifiTry = nowMs();
 
-  protocol = new Protocol(&rng, &sink);          // BOOT_LATCHED
+  // Bench (phone on Wi-Fi): the connection may be silent up to 1200 ms before the
+  // session latches (was 600). Motion still stops by the lease (evidenceMaxMs 700)
+  // when no fresh command arrives. MUST match linkOptions in js/app.js.
+  ProtocolConfig protocolConfig;
+  protocolConfig.movementWatchdogMs = 1200;
+  protocolConfig.sessionLivenessMs = 1200;
+  protocol = new Protocol(&rng, &sink, nullptr, protocolConfig);   // BOOT_LATCHED
   kernel = new SafetyKernel(*protocol, hal, interlock);
   wsServer = new WsServer(kWsPort, kWsPath, app);
   sink.server = wsServer;
