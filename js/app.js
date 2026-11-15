@@ -214,10 +214,9 @@ const session = createEsp32Session({
 // >= 1200 and evidenceMaxMs >= 1500 (esp32-follow.ino), see DEMO_LINK below.
 const smoother = createMotionSmoother({
   ...(DEMO_MODE ? { holdMs: 1000 } : {}),
-  // Resume 0.05 below the stop height (owner's choice: stop 95 % / resume 90 %).
-  // A smaller gap restarts sooner but may stop-go more when the owner stands
-  // right at the threshold.
-  ...(STOP_HEIGHT_OVERRIDE ? { resumeHeightRatio: STOP_HEIGHT_OVERRIDE - 0.05 } : {})
+  // Resume 0.08 below the stop height (stop 95 % / resume 87 %). 0.05 made the
+  // luggage stop-go when the owner stood near the threshold (detector jitter).
+  ...(STOP_HEIGHT_OVERRIDE ? { resumeHeightRatio: STOP_HEIGHT_OVERRIDE - 0.08 } : {})
 });
 
 setMotionDecisionListener(decision => {
