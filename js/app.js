@@ -279,7 +279,7 @@ function renderEspLink() {
   let label = "DISCONNECTED";
   if (status.emergency) label = "ESTOP LATCHED";
   else if (status.hidden) label = "PAUSED (PAGE HIDDEN)";
-  else if (status.desired && !link.connected && link.busyStart !== null) label = "DEVICE BUSY";
+  else if (status.lastEvent === "DEVICE_BUSY" || (status.desired && !link.connected && link.busyStart !== null)) label = "DEVICE BUSY";
   else if (link.connected) label = status.follow ? "FOLLOWING ENABLED" : "CONNECTED (STOP)";
   else if (status.desired) label = "CONNECTING";
 
