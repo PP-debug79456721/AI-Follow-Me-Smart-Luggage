@@ -361,6 +361,26 @@ function deviceMotorText(status) {
   return link.deviceMotor ?? "—";
 }
 
+// Diagnostics (bench): the longest gap between page timer ticks in the last
+// 10 s. A gap above ~1000 ms means the browser itself stalled (busy main thread,
+// throttled or hidden window) and the link went silent from the page side.
+let stallLastTick = performance.now();
+let stallMax = 0;
+let stallShown = 0;
+let stallWindowStart = performance.now();
+let hiddenCount = 0;
+document.addEventListener("visibilitychange", () => { if (document.hidden) hiddenCount += 1; });
+setInterval(() => {
+  const t = performance.now();
+  stallMax = Math.max(stallMax, t - stallLastTick);
+  stallLastTick = t;
+  if (t - stallWindowStart >= 10000) {
+    stallShown = stallMax;
+    stallMax = 0;
+    stallWindowStart = t;
+  }
+}, 100);
+
 function renderEspLink() {
 
   const status = session.getStatus();
@@ -389,7 +409,8 @@ function renderEspLink() {
     `follow: ${status.follow ? "ON" : "OFF"}   estop: ${status.emergency ? "LATCHED" : "no"}`,
     `sending: ${link.effective?.command ?? "-"} (${link.effective?.reason ?? "-"})`,
     `device motor: ${deviceMotorText(status)}   rtt: ${link.rttEst ?? "-"} ms`,
-    `last: ${status.lastEvent ?? "-"}   resync: ${link.lastResyncReason ?? "-"}`
+    `last: ${status.lastEvent ?? "-"}   resync: ${link.lastResyncReason ?? "-"}`,
+    `page stall: ${Math.round(Math.max(stallShown, stallMax))} ms   buffered: ${status.buffered ?? "-"} B   hidden: ${hiddenCount}`
   ].join("\n"));
 }
 

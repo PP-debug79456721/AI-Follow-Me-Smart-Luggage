@@ -423,6 +423,7 @@ export function createEsp32Session({
         follow,
         emergency: linkStatus.emergency,
         socket: socket ? SOCKET_NAMES[socket.readyState] ?? "UNKNOWN" : "NONE",
+        buffered: socket && typeof socket.bufferedAmount === "number" ? socket.bufferedAmount : null,
         backoffIndex,
         handshakeFailures,
         lastEvent,
