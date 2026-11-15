@@ -152,6 +152,13 @@ let lastPersonInference = 0;
 // healthy target at about 200-350 ms.
 const INFERENCE_INTERVAL = 100;
 const PERSON_INTERVAL = 200;
+// Face detection is not used for motion (only for FACE CROP EXPORT and the
+// face boxes), so it runs less often to leave time for person detection.
+const FACE_INTERVAL = 500;
+let lastFaceInference = 0;
+let personDelegate = null;
+// Measured gap between person detections (ms), shown in the status line.
+let personGapMs = null;
 
 // No new camera frame for this long = the image on screen is frozen.
 // Detection is then skipped, so nothing is "tracked" on a stale picture.
@@ -637,27 +644,40 @@ async function loadDetectors() {
     setReady(readyFace, "ERROR", "bad");
   }
 
+  // Person detection feeds the motion decision, so it must be fast (see
+  // PERSON_INTERVAL). GPU first; if the GPU delegate cannot be created on
+  // this browser/computer, fall back to CPU.
+  const createPersonDetector = delegate => withTimeout(
+    tasks.ObjectDetector.createFromOptions(
+      vision,
+      {
+        baseOptions: {
+          modelAssetPath: PERSON_DETECTOR_MODEL_URL,
+          delegate
+        },
+        runningMode: "VIDEO",
+        scoreThreshold: 0.5,
+        maxResults: 10
+      }
+    ),
+    `Person detector (${delegate})`,
+    closeLate
+  );
+
   try {
-    personDetector = await withTimeout(
-      tasks.ObjectDetector.createFromOptions(
-        vision,
-        {
-          baseOptions: {
-            modelAssetPath: PERSON_DETECTOR_MODEL_URL,
-            delegate: "CPU"
-          },
-          runningMode: "VIDEO",
-          scoreThreshold: 0.5,
-          maxResults: 10
-        }
-      ),
-      "Person detector",
-      closeLate
-    );
+    try {
+      personDetector = await createPersonDetector("GPU");
+      personDelegate = "GPU";
+    } catch (gpuError) {
+      console.warn("Person detector: GPU unavailable, using CPU:", gpuError);
+      personDetector = await createPersonDetector("CPU");
+      personDelegate = "CPU";
+    }
     setReady(readyPerson, "READY", "ok");
   } catch (error) {
     console.error("Person detector load error:", error);
     personDetector = null;
+    personDelegate = null;
     errors.push(error);
     setReady(readyPerson, "ERROR", "bad");
   }
@@ -703,6 +723,8 @@ export function startOwnerAI() {
   running = true;
   lastInference = 0;
   lastPersonInference = 0;
+  lastFaceInference = 0;
+  personGapMs = null;
 
   tracker.reset();
   lastFaces = [];
@@ -1036,7 +1058,9 @@ function processFrame(timestamp) {
 
     let faceList = [];
 
-    if (faceDetector) {
+    if (faceDetector && timestamp - lastFaceInference >= FACE_INTERVAL) {
+
+      lastFaceInference = timestamp;
 
       const faces = faceDetector.detectForVideo(
         video,
@@ -1064,6 +1088,7 @@ function processFrame(timestamp) {
       timestamp - lastPersonInference >= PERSON_INTERVAL
     ) {
 
+      if (lastPersonInference > 0) personGapMs = timestamp - lastPersonInference;
       lastPersonInference = timestamp;
 
       const people = personDetector.detectForVideo(
@@ -1097,7 +1122,9 @@ function processFrame(timestamp) {
       tracker.update(persons, timestamp, width, height, { blocked });
 
       personStatus.textContent =
-        `${persons.length} PERSON(S)`;
+        `${persons.length} PERSON(S)` +
+        (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
+        (personDelegate ? ` · ${personDelegate}` : "");
     }
 
     tracker.tick(timestamp);

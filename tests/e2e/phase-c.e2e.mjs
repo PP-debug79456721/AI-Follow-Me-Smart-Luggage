@@ -792,7 +792,7 @@ test("frozen camera (no new frame > 1 s): detection stops, SEARCHING then LOST",
 
   // Frames come back: detection runs again and the person can be tapped.
   await page.evaluate(() => document.getElementById("camera").play());
-  await page.waitForFunction(() => document.getElementById("personAIStatus").textContent === "1 PERSON(S)", null, { timeout: 4000 });
+  await page.waitForFunction(() => document.getElementById("personAIStatus").textContent.startsWith("1 PERSON(S)"), null, { timeout: 4000 });
   assert.ok(await reads() > before);
   await tapVideo(page, b.originX + b.width / 2, b.originY + b.height / 2);
   await waitStatus(page, "TRACKING", 2000);
