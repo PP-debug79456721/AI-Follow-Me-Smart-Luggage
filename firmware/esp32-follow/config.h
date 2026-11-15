@@ -37,7 +37,7 @@ constexpr bool kRightInvert = false;
 // ---- drive settings (start low, raise in small steps)
 constexpr float kDriveDuty = 0.25f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
 constexpr float kDutyMax = 0.60f;             // hard ceiling, kDriveDuty is clamped to this
-constexpr float kTurnInnerFraction = 0.30f;   // inner wheel duty = kDriveDuty * this
+constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty * this (0.30 left the inner wheel stalled)
 constexpr float kRampPerSecond = 1.0f;        // duty change per second when speeding up (soft start)
 constexpr uint32_t kPwmFreqHz = 5000;
 constexpr uint8_t kPwmBits = 8;

@@ -185,6 +185,8 @@ void loop() {
       Serial.print(protocol->lastRejectReason() ? protocol->lastRejectReason() : "-");
       Serial.print(" wd=");
       Serial.print(c.watchdogLatches);
+      Serial.print(" drop=");
+      Serial.print(wsServer ? wsServer->droppedFrames() : 0);
     }
     Serial.print(" maxgap=");
     Serial.print(static_cast<int>(maxLoopGapMs));

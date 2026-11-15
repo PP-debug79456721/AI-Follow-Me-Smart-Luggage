@@ -9,10 +9,19 @@
 // dead phone). That is transport only: protocol sessions are unaffected, and a new app
 // session is BUSY until the old one is stale (Protocol v2, no takeover). When a handshaken
 // socket closes, the handler is told so the kernel can stop at once.
+//
+// PHASE 2: every write is NON-BLOCKING (send(MSG_DONTWAIT) on the socket). WiFiClient::write
+// waits up to 10 x 1 s when the TCP send buffer is full (weak Wi-Fi, busy phone/laptop); on the
+// bench that stalled loop() long enough to trip the 600 ms protocol timers and finally the task
+// watchdog (reset). Now a frame that cannot be sent at once is dropped (the app treats a missing
+// reply as a timeout and stops), and a frame that was only partly sent closes the socket
+// (a cut frame would corrupt the stream).
 #pragma once
 
 #include <WiFi.h>
+#include <errno.h>
 #include <string.h>
+#include <lwip/sockets.h>
 
 #include "ws_frame.h"
 #include "ws_handshake.h"
@@ -39,7 +48,7 @@ class WsServer {
     uint8_t frame[400];
     const size_t n = ws::encodeFrame(ws::kText, reinterpret_cast<const uint8_t*>(json), length, frame, sizeof(frame));
     if (n == 0) return false;
-    return client_.write(frame, n) == n;
+    return writeNow(frame, n);
   }
 
   void poll(double now) {
@@ -51,10 +60,11 @@ class WsServer {
       used_ = 0;
       handshaken_ = false;
       haveClient_ = true;
+      broken_ = false;
     }
 
     if (!haveClient_) return;
-    if (!client_.connected()) {
+    if (broken_ || !client_.connected()) {
       closeClient(now);
       return;
     }
@@ -92,7 +102,7 @@ class WsServer {
         case ws::kPing: {
           uint8_t pong[140];
           const size_t n = ws::encodeFrame(ws::kPong, frame.payload, frame.payloadLength, pong, sizeof(pong));
-          if (n) client_.write(pong, n);
+          if (n) writeNow(pong, n);
           break;
         }
         case ws::kPong:
@@ -131,7 +141,7 @@ class WsServer {
           used_ = 0;
           return false;
         }
-        client_.write(reinterpret_cast<const uint8_t*>(response), n);
+        if (!writeNow(reinterpret_cast<const uint8_t*>(response), n)) return false;
         const size_t rest = used_ - (i + 1);
         if (rest) memmove(buffer_, buffer_ + i + 1, rest);
         used_ = rest;
@@ -146,13 +156,34 @@ class WsServer {
     uint8_t payload[2] = {static_cast<uint8_t>(code >> 8), static_cast<uint8_t>(code & 0xFF)};
     uint8_t frame[8];
     const size_t n = ws::encodeFrame(ws::kClose, payload, 2, frame, sizeof(frame));
-    if (n) client_.write(frame, n);
+    if (n) writeNow(frame, n);
   }
+
+  // Sends all n bytes at once or nothing. Never waits.
+  //   all sent          -> true
+  //   nothing sent      -> false, socket kept (the frame is simply lost)
+  //   partly sent/error -> false, socket marked broken and closed on the next poll
+  bool writeNow(const uint8_t* data, size_t n) {
+    if (!haveClient_) return false;
+    const int fd = client_.fd();
+    if (fd < 0) { broken_ = true; return false; }
+    const int sent = ::send(fd, data, n, MSG_DONTWAIT);
+    if (sent == static_cast<int>(n)) return true;
+    if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { dropped_ += 1; return false; }
+    broken_ = true;
+    return false;
+  }
+
+ public:
+  uint32_t droppedFrames() const { return dropped_; }
+
+ private:
 
   void closeClient(double now) {
     const bool wasOpen = haveClient_ && handshaken_;
     if (haveClient_) client_.stop();
     haveClient_ = false;
+    broken_ = false;
     handshaken_ = false;
     used_ = 0;
     if (wasOpen) handler_.onClosed(now);
@@ -166,6 +197,8 @@ class WsServer {
   size_t used_ = 0;
   bool haveClient_ = false;
   bool handshaken_ = false;
+  bool broken_ = false;
+  uint32_t dropped_ = 0;
 };
 
 }  // namespace follow
