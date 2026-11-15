@@ -63,8 +63,11 @@ kRightGain was boosting the physical LEFT wheel; the "weak right wheel" findings
 | E-STOP status input (planned) | 23 (not wired) |
 | HC-SR04 trig/echo (planned, echo needs 5V->3.3V divider) | 18/34, 19/35 |
 
-BTS7960 VCC = 3V3. Power: LiPo 3S 1100 mAh -> 10 A fuse -> main switch -> (a) LM2596 5 V -> ESP32 VIN,
+BTS7960 VCC = 3V3. Power (as drawn): LiPo 3S 1100 mAh -> 10 A fuse -> main switch -> (a) LM2596 5 V -> ESP32 VIN,
 (b) E-STOP switch -> relay coil 86, relay 12 V 40 A 30->87 -> BTS7960 B+ x2.
+
+**The 10 A fuse in the diagram is NOT installed (owner, 2026-11-15).** Advised: inline blade fuse
+10-15 A on the battery + lead before the main switch, and keep kDriveDuty <= 0.60 until it is fitted.
 
 **E-STOP is a 2-pin on/off switch (single contact).** It cuts the relay coil (real hardware kill) but
 cannot also signal GPIO23. Planned: PC817 optocoupler from relay pin 86 (2.2k) -> D23/GND, so
