@@ -2,3 +2,8 @@
 # ONNX model files stay local
 models/**/*.onnx
 *.zip
+
+# ESP32 firmware Wi-Fi credentials (never commit)
+firmware/esp32-follow/wifi_secrets.h
+node_modules/
+*pastedcontent*.txt

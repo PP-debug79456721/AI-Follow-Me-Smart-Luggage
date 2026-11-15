@@ -1,0 +1,396 @@
+{
+  "schema": "phase2b-0.v1",
+  "fabricated": false,
+  "variant": "H1",
+  "savedAt": "2026-11-14T06:21:32.932Z",
+  "env": null,
+  "camera": null,
+  "endpoints": null,
+  "models": {
+    "ran": true,
+    "status": "PASS",
+    "error": null,
+    "urls": {
+      "bundle": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs",
+      "wasm": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm",
+      "model": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite"
+    },
+    "bundleMs": 60,
+    "wasmMs": 6,
+    "createMs": 1163,
+    "inferenceInput": "canvas",
+    "inferMs": {
+      "n": 30,
+      "min": 202.7,
+      "p50": 213.3,
+      "p95": 222.6,
+      "p99": 632,
+      "max": 632,
+      "mean": 226.5,
+      "stdev": 75.5
+    },
+    "detectionsSeen": 0,
+    "resourceTimings": [
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs",
+        "durationMs": 26,
+        "transferSize": 0,
+        "encodedBodySize": 33813
+      },
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/vision_wasm_internal.js",
+        "durationMs": 12,
+        "transferSize": 0,
+        "encodedBodySize": 78444
+      },
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/vision_wasm_internal.wasm",
+        "durationMs": 144,
+        "transferSize": 0,
+        "encodedBodySize": 2987039
+      },
+      {
+        "name": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+        "durationMs": 471,
+        "transferSize": 0,
+        "encodedBodySize": 0
+      }
+    ]
+  },
+  "ws": {
+    "ran": true,
+    "status": "PASS",
+    "url": "wss://urban-trout-q9p4g57pg542j9j-8080.app.github.dev/ws",
+    "error": null,
+    "open": {
+      "outcome": "OPENED",
+      "ms": 293,
+      "events": [
+        {
+          "e": "open",
+          "ms": 293
+        },
+        {
+          "e": "close",
+          "code": 1000,
+          "wasClean": true,
+          "reason": "",
+          "ms": 313388
+        }
+      ],
+      "error": null
+    },
+    "durationSec": 300,
+    "phase5Hz": {
+      "sent": 1500,
+      "received": 1500,
+      "lossPct": 0,
+      "rtt": {
+        "n": 1500,
+        "min": 39.9,
+        "p50": 47.8,
+        "p95": 54.6,
+        "p99": 61.9,
+        "max": 127.2,
+        "mean": 48.4,
+        "stdev": 4.6
+      },
+      "duplicates": 0,
+      "outOfOrder": 0,
+      "sendErrors": 0,
+      "events": [
+        {
+          "e": "close",
+          "code": 1000,
+          "wasClean": true,
+          "at": 416724.5
+        }
+      ]
+    },
+    "readyStateAfter5Hz": 1,
+    "burst100ms": {
+      "sent": 100,
+      "received": 100,
+      "lossPct": 0,
+      "rtt": {
+        "n": 100,
+        "min": 44.8,
+        "p50": 48.9,
+        "p95": 62.7,
+        "p99": 288.1,
+        "max": 288.1,
+        "mean": 53.9,
+        "stdev": 27.9
+      },
+      "duplicates": 0,
+      "outOfOrder": 0,
+      "sendErrors": 0,
+      "events": [
+        {
+          "e": "close",
+          "code": 1000,
+          "wasClean": true,
+          "at": 416724.59999999404
+        }
+      ],
+      "durationSec": 10
+    }
+  },
+  "concurrent": {
+    "ran": true,
+    "status": "PASS",
+    "errors": [],
+    "url": "wss://urban-trout-q9p4g57pg542j9j-8080.app.github.dev/ws",
+    "cameraStarted": true,
+    "modelTimings": {
+      "bundleMs": 0,
+      "wasmMs": 0,
+      "createMs": 535
+    },
+    "wsOpen": {
+      "outcome": "OPENED",
+      "ms": 429,
+      "error": null
+    },
+    "durationSec": 300,
+    "camera": {
+      "trackReadyState": "live",
+      "fps": 29.7
+    },
+    "detection": {
+      "frames": 1396,
+      "detections": 9,
+      "inferMs": {
+        "n": 1396,
+        "min": 205,
+        "p50": 210.9,
+        "p95": 217.6,
+        "p99": 245.8,
+        "max": 1756.2,
+        "mean": 213.7,
+        "stdev": 42.8
+      },
+      "fps": 4.7
+    },
+    "ws": {
+      "readyState": 1,
+      "sent": 1211,
+      "received": 1211,
+      "lossPct": 0,
+      "rtt": {
+        "n": 1211,
+        "min": 38,
+        "p50": 212,
+        "p95": 225.4,
+        "p99": 429.7,
+        "max": 1759.7,
+        "mean": 222,
+        "stdev": 62.4
+      },
+      "duplicates": 0,
+      "outOfOrder": 0,
+      "sendErrors": 0,
+      "events": [
+        {
+          "e": "close",
+          "code": 1000,
+          "wasClean": true,
+          "at": 787552.799999997
+        }
+      ]
+    },
+    "mainThread": {
+      "maxLagMs": 1752,
+      "lagOver100ms": 1382,
+      "longTasks": 1396,
+      "maxLongTaskMs": 1757
+    },
+    "resourceTimings": [
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs",
+        "durationMs": 26,
+        "transferSize": 0,
+        "encodedBodySize": 33813
+      },
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/vision_wasm_internal.js",
+        "durationMs": 12,
+        "transferSize": 0,
+        "encodedBodySize": 78444
+      },
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/vision_wasm_internal.wasm",
+        "durationMs": 144,
+        "transferSize": 0,
+        "encodedBodySize": 2987039
+      },
+      {
+        "name": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+        "durationMs": 471,
+        "transferSize": 0,
+        "encodedBodySize": 0
+      },
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/vision_wasm_internal.js",
+        "durationMs": 11,
+        "transferSize": 0,
+        "encodedBodySize": 78444
+      },
+      {
+        "name": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm/vision_wasm_internal.wasm",
+        "durationMs": 148,
+        "transferSize": 0,
+        "encodedBodySize": 2987039
+      },
+      {
+        "name": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+        "durationMs": 56,
+        "transferSize": 0,
+        "encodedBodySize": 0
+      }
+    ]
+  },
+  "stall": {
+    "ran": true,
+    "status": "PASS",
+    "url": "wss://urban-trout-q9p4g57pg542j9j-8080.app.github.dev/ws",
+    "error": null,
+    "silent": {
+      "controlAcknowledged": true,
+      "observedSec": 15,
+      "repliesDuringStall": 0,
+      "readyStateSamples": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "readyStateStayedOpen": true,
+      "browserCloseFiredDuringStall": false,
+      "appLevelUnresponsiveAfterMs": 514,
+      "appLevelUnresponsiveAfterLastReplyMs": 614,
+      "unresponsiveThresholdMs": 600,
+      "recoveredAfterEchoCtlMs": 201,
+      "echoCtlAcknowledged": true
+    },
+    "pause": {
+      "controlAcknowledged": true,
+      "pauseSec": 8,
+      "maxBufferedAmountBytes": 0,
+      "readyStateSamples": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "repliesDuringPause": 40,
+      "staleRepliesAfterResume": 30,
+      "maxStaleRttMs": 7947
+    },
+    "drop": {
+      "controlAcknowledged": true,
+      "browserCloseEventAfterMs": 53,
+      "closeCode": 1006,
+      "wasClean": false,
+      "observedSec": 30,
+      "reopenOutcome": "OPENED",
+      "reopenMs": 269
+    },
+    "baselineReplies": 7
+  },
+  "mixed": null,
+  "wss": null,
+  "reconnect": null,
+  "hidden": {
+    "ran": true,
+    "status": "PASS",
+    "url": "wss://urban-trout-q9p4g57pg542j9j-8080.app.github.dev/ws",
+    "error": null,
+    "events": [
+      {
+        "state": "hidden",
+        "at": 852286
+      },
+      {
+        "state": "visible",
+        "at": 936526
+      }
+    ],
+    "hiddenIntervals": [
+      {
+        "hiddenMs": 84240,
+        "timerMaxGapMs": 1002,
+        "echoSentWhileHidden": 60,
+        "echoRepliesWhileHidden": 60,
+        "readyStateOnReturn": 1,
+        "closeEvents": 0,
+        "trackReadyStateOnReturn": "live",
+        "firstReplyAfterReturnMs": null
+      }
+    ],
+    "cameraRunning": true,
+    "overallTimerMaxGapMs": 24553,
+    "echo": {
+      "sent": 460,
+      "received": 88,
+      "lossPct": 80.7,
+      "rtt": {
+        "n": 88,
+        "min": 39.1,
+        "p50": 48.3,
+        "p95": 573,
+        "p99": 807.7,
+        "max": 807.7,
+        "mean": 142,
+        "stdev": 203
+      },
+      "duplicates": 0,
+      "outOfOrder": 0,
+      "sendErrors": 0,
+      "events": [
+        {
+          "e": "error",
+          "at": 936529.8999999911
+        },
+        {
+          "e": "close",
+          "code": 1006,
+          "wasClean": false,
+          "at": 936530
+        }
+      ]
+    },
+    "finalReadyState": 3
+  },
+  "wakeLock": null,
+  "manual": {
+    "phone": "Infinix note 30 5g",
+    "android": "Cos v14.0.0",
+    "wifi": "",
+    "mobileData": "unknown",
+    "noInternetPromptSeen": "unknown",
+    "wifiIconNoInternet": "unknown",
+    "phoneKeptWifiForPage": "unknown",
+    "localNetworkPromptSeen": "unknown",
+    "reconnectCause": "none",
+    "certificateExceptionAccepted": "no",
+    "notes": ""
+  },
+  "serverReceivedAt": "2026-11-14T06:21:33.054Z",
+  "clientAddress": "127.0.0.1"
+}

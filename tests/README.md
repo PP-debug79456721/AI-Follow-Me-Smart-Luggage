@@ -66,3 +66,17 @@ NODE_PATH="$(npm root -g)" node --test tests/e2e/phase-c.e2e.mjs
 
 Without Playwright the browser tests are reported as skipped. A run takes
 about 20 seconds.
+
+
+## ESP32 session and firmware tests (M0 and firmware skeleton)
+
+All of these use a MOCK device or a host compiler. They prove nothing about a real ESP32,
+Wi-Fi, timing or a motor.
+
+```bash
+node --test tests/esp32-session.test.mjs        # js/esp32-session.js against js/mock-socket.js (mock ESP32)
+node --test tests/firmware-conformance.test.mjs # firmware/esp32-follow protocol core vs js/mock-esp32.js
+node --test tests/firmware-host.test.mjs        # kernel, interlock, WebSocket codec, hardware-lock checks
+```
+
+The last two need a host C++ compiler (`g++` or `clang++`) and are skipped without one.

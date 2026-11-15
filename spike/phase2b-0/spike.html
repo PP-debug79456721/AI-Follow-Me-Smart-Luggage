@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 2B-0 spike (throwaway)</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --mut:#666; --line:#ccc; --acc:#0b57d0; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --mut:#999; --line:#444; --acc:#8ab4f8; } }
+  body { margin:0; padding:12px 16px 80px; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui, sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:18px 0 6px; }
+  p.note { color:var(--mut); margin:2px 0 10px; font-size:13px; }
+  label { display:block; margin:8px 0 2px; font-size:13px; color:var(--mut); }
+  input, select, textarea { width:100%; box-sizing:border-box; padding:8px; font:inherit; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+  button { padding:11px 14px; margin:4px 6px 4px 0; font:inherit; border:1px solid var(--acc); background:transparent; color:var(--acc); border-radius:8px; }
+  button.primary { background:var(--acc); color:var(--bg); }
+  button:disabled { opacity:.4; }
+  pre { white-space:pre-wrap; word-break:break-word; border:1px solid var(--line); border-radius:6px; padding:8px; font-size:12px; max-height:280px; overflow:auto; }
+  video { width:100%; max-height:200px; background:#000; border-radius:6px; }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+</style>
+</head>
+<body>
+<h1>Phase 2B-0 deployment spike</h1>
+<p class="note">Throwaway test page. It is not the production app and does not talk to an ESP32.
+Results are saved to the stand-in server; nothing is sent anywhere else except the MediaPipe CDN requests of the model test.</p>
+
+<h2>Setup</h2>
+<label for="variant">Variant (see README-SPIKE.md)</label>
+<select id="variant">
+  <option>H1</option><option>L1</option><option>L2</option><option>L3</option><option>L4</option>
+  <option>N1</option><option>N2</option><option>OTHER</option>
+</select>
+<label for="wsUrl">WebSocket URL of the stand-in server</label>
+<input id="wsUrl" autocomplete="off" autocapitalize="off" spellcheck="false">
+<label for="durationSec">Duration of the timed tests, seconds (formal result: 300)</label>
+<input id="durationSec" type="number" value="60" min="10" max="900">
+<div class="row">
+  <div><label for="insecureHost">Insecure ws:// host:port (variant L4 only)</label>
+  <input id="insecureHost" placeholder="192.168.1.20:8080" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+  <div><label for="secureHost">wss:// host:port (variant L3 only)</label>
+  <input id="secureHost" placeholder="192.168.1.20:8443" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+</div>
+<label for="otherHost">Other origin for the application endpoint test (host:port, optional)</label>
+<input id="otherHost" placeholder="192.168.1.20:8080" autocomplete="off" autocapitalize="off" spellcheck="false">
+
+<h2>Tests</h2>
+<video id="video" playsinline muted></video>
+<div>
+  <button id="bRunAll" class="primary">Run all</button>
+  <button id="bEnv">1 Environment</button>
+  <button id="bCamera">2 Camera</button>
+  <button id="bEndpoints">3 Endpoints</button>
+  <button id="bModels">4 Models</button>
+  <button id="bWs">5 WebSocket</button>
+  <button id="bConcurrent">6 Concurrent</button>
+  <button id="bStall">7 Stall / drop</button>
+</div>
+<div>
+  <button id="bMixed">8 ws:// from https</button>
+  <button id="bWss">9 wss://</button>
+  <button id="bReconnect">10 Reconnect probe</button>
+  <button id="bHidden">11 Hidden page</button>
+  <button id="bFinishHidden" disabled>Finish hidden test</button>
+  <button id="bWake">12 Wake Lock</button>
+</div>
+
+<h2>Manual observations (Android, no-internet Wi-Fi)</h2>
+<p class="note">Fill in what you SEE on the phone. These are your observations, not measurements.</p>
+<div class="row">
+  <div><label for="mPhone">Phone model</label><input id="mPhone"></div>
+  <div><label for="mAndroid">Android version</label><input id="mAndroid"></div>
+</div>
+<div class="row">
+  <div><label for="mWifi">Wi-Fi network used</label><input id="mWifi" placeholder="laptop hotspot / router / other"></div>
+  <div><label for="mData">Mobile data during the test</label>
+  <select id="mData"><option>unknown</option><option>on</option><option>off</option></select></div>
+</div>
+<div class="row">
+  <div><label for="mPrompt">Android showed a "no internet / stay connected?" prompt</label>
+  <select id="mPrompt"><option>unknown</option><option>yes</option><option>no</option></select></div>
+  <div><label for="mIcon">Wi-Fi status shows no internet</label>
+  <select id="mIcon"><option>unknown</option><option>yes</option><option>no</option></select></div>
+</div>
+<div class="row">
+  <div><label for="mDefault">Phone kept using this Wi-Fi for the page</label>
+  <select id="mDefault"><option>unknown</option><option>yes</option><option>no</option></select></div>
+  <div><label for="mPrompt2">Chrome showed a local-network permission prompt</label>
+  <select id="mPrompt2"><option>unknown</option><option>yes</option><option>no</option></select></div>
+</div>
+<div class="row">
+  <div><label for="mReconnectCause">Cause used in the reconnect probe</label>
+  <select id="mReconnectCause"><option>none</option><option>server restarted</option><option>Wi-Fi toggled</option><option>other</option></select></div>
+  <div><label for="mCert">wss:// certificate exception already accepted?</label>
+  <select id="mCert"><option>no</option><option>yes</option></select></div>
+</div>
+<label for="mNotes">Notes</label>
+<textarea id="mNotes" rows="3"></textarea>
+
+<h2>Results</h2>
+<div>
+  <button id="bSave" class="primary">Save results to server</button>
+  <button id="bDownload">Download JSON</button>
+</div>
+<pre id="status">not run</pre>
+<h2>Log</h2>
+<pre id="log"></pre>
+
+<script type="module" src="./spike.js"></script>
+</body>
+</html>

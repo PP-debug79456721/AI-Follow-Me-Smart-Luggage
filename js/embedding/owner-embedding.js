@@ -14,26 +14,30 @@ import {
   saveEmbedding
 } from "./embedding-database.js";
 
+import {
+  decideModelLoad,
+  resolveModelUseMode
+} from "./model-policy.js";
+
 // --------------------------------------------------
 // Model Configuration
 // --------------------------------------------------
 
-// models/manifest.json describes each model file (size, SHA-256,
-// availability). It is optional: without it the face model still loads
-// from its default path but without an integrity check, and the
-// Re-ID model is treated as unavailable.
+// models/manifest.json describes each model file (schema 2, see
+// model-policy.js and models/MODEL_METADATA.md). It is REQUIRED: without
+// a valid manifest entry with size and SHA-256 no model is loaded
+// (fail-closed). There is no default model path.
 const MANIFEST_PATH = "./models/manifest.json";
-
-const DEFAULT_FACE_PATH =
-  "./models/face/face-recognition.onnx";
 
 // --------------------------------------------------
 // Per-Model Status
 // --------------------------------------------------
 
 /*
- * state: NOT_LOADED | NO_MODEL | DOWNLOADING | VERIFYING | LOADING |
- *        SESSION_LOADED | NOT_FOUND | CHECKSUM_MISMATCH | ERROR
+ * state: NOT_LOADED | NO_MODEL | BLOCKED | DOWNLOADING | VERIFYING |
+ *        LOADING | SESSION_LOADED | NOT_FOUND | SIZE_MISMATCH |
+ *        CHECKSUM_MISMATCH | ERROR
+ * BLOCKED carries a reason from model-policy.js (nothing was requested).
  * SESSION_LOADED means the ONNX session was created. It does NOT mean
  * recognition has been verified.
  */
@@ -61,12 +65,19 @@ function setModelStatus(key, state, extra, listener) {
 
 function failureState(error) {
 
-  if (error?.code === "NOT_FOUND") return "NOT_FOUND";
-  if (error?.code === "CHECKSUM_MISMATCH") return "CHECKSUM_MISMATCH";
-
-  return "ERROR";
+  switch (error?.code) {
+    case "NOT_FOUND":
+    case "SIZE_MISMATCH":
+    case "CHECKSUM_MISMATCH":
+      return error.code;
+    case "EMPTY_FILE":
+      return "SIZE_MISMATCH";
+    default:
+      return "ERROR";
+  }
 }
 
+/* The parsed manifest, or null when it is missing or not valid JSON. */
 async function loadManifest() {
 
   try {
@@ -97,6 +108,10 @@ let initializationPromise = null;
  * other from loading. Never rejects for a single model failure: read
  * the per-model result from the returned status object or from
  * onStatus(modelKey, status).
+ *
+ * Fail-closed: model-policy.js decides from the manifest BEFORE any model
+ * file is requested. The mode (production / development) comes from the
+ * page address, never from the caller, so code cannot switch it.
  */
 export function initializeEmbeddingModels({ onStatus } = {}) {
 
@@ -108,85 +123,47 @@ export function initializeEmbeddingModels({ onStatus } = {}) {
 
     try {
 
+      const mode = resolveModelUseMode(globalThis.location);
       const manifest = await loadManifest();
 
-      const faceEntry = manifest?.models?.face;
-      const reidEntry = manifest?.models?.reid;
+      const loaders = {
+        face: initFaceEmbedding,
+        reid: initReIDEmbedding
+      };
 
-      // ---- Face
-      if (faceEntry?.status === "NO_MODEL") {
+      for (const key of ["face", "reid"]) {
 
-        setModelStatus("face", "NO_MODEL", {}, onStatus);
+        if (modelStatus[key].state === "SESSION_LOADED") continue;
 
-      } else if (modelStatus.face.state !== "SESSION_LOADED") {
+        const decision = decideModelLoad(manifest, key, mode);
 
-        const path = faceEntry?.file
-          ? `./${faceEntry.file}`
-          : DEFAULT_FACE_PATH;
-
-        const checksum = faceEntry?.sha256 || null;
-
-        try {
-
-          await initFaceEmbedding(path, {
-            expectedSize: faceEntry?.sizeBytes || null,
-            expectedSha256: checksum,
-            onStatus: (state, extra) =>
-              setModelStatus("face", state, extra, onStatus)
-          });
-
-          setModelStatus(
-            "face",
-            "SESSION_LOADED",
-            { checksum: Boolean(checksum) },
-            onStatus
-          );
-
-        } catch (error) {
-
-          console.error("Face model not available:", error);
-
-          setModelStatus(
-            "face",
-            failureState(error),
-            { message: error.message },
-            onStatus
-          );
+        if (!decision.allowed) {
+          setModelStatus(key, decision.state, { reason: decision.reason, mode }, onStatus);
+          continue;
         }
-      }
-
-      // ---- Re-ID: only when the manifest explicitly marks a
-      // verified model as AVAILABLE.
-      if (reidEntry?.status !== "AVAILABLE" || !reidEntry.file) {
-
-        setModelStatus("reid", "NO_MODEL", {}, onStatus);
-
-      } else if (modelStatus.reid.state !== "SESSION_LOADED") {
-
-        const checksum = reidEntry.sha256 || null;
 
         try {
 
-          await initReIDEmbedding(`./${reidEntry.file}`, {
-            expectedSize: reidEntry.sizeBytes || null,
-            expectedSha256: checksum,
+          await loaders[key](`./${decision.file}`, {
+            expectedSize: decision.sizeBytes,
+            expectedSha256: decision.sha256,
             onStatus: (state, extra) =>
-              setModelStatus("reid", state, extra, onStatus)
+              setModelStatus(key, state, extra, onStatus)
           });
 
           setModelStatus(
-            "reid",
+            key,
             "SESSION_LOADED",
-            { checksum: Boolean(checksum) },
+            { checksum: true, mode, license: decision.license },
             onStatus
           );
 
         } catch (error) {
 
-          console.error("Re-ID model not available:", error);
+          console.error(`${key} model not available:`, error);
 
           setModelStatus(
-            "reid",
+            key,
             failureState(error),
             { message: error.message },
             onStatus

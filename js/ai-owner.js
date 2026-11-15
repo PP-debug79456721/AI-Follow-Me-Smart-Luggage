@@ -14,6 +14,9 @@ import {
 // Pure logic with no external imports (same reason as above).
 import { createPersonTracker } from "./person-tracker.js";
 
+// Pure logic: turns the raw selected box into STOP / FORWARD / LEFT / RIGHT.
+import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.js";
+
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
@@ -460,6 +463,10 @@ function describeModelStatus(status) {
     case "NO_MODEL":
       return ["NO MODEL", "warn"];
 
+    // Refused by models/manifest.json policy; nothing was downloaded.
+    case "BLOCKED":
+      return [`BLOCKED: ${status.reason || "POLICY"}`, "bad"];
+
     case "NOT_LOADED":
       return ["NOT LOADED", ""];
 
@@ -478,15 +485,19 @@ function describeModelStatus(status) {
       return ["LOADING SESSION", "warn"];
 
     case "SESSION_LOADED":
+      // Only reachable with size + SHA-256 checked (fail-closed loader).
       return [
-        status.checksum
-          ? "SESSION LOADED (UNVERIFIED)"
-          : "SESSION LOADED (UNVERIFIED, NO CHECKSUM)",
+        status.mode === "development"
+          ? `SESSION LOADED (DEVELOPMENT ONLY, LICENSE ${status.license || "UNVERIFIED"})`
+          : "SESSION LOADED (RECOGNITION NOT VERIFIED)",
         "warn"
       ];
 
     case "NOT_FOUND":
       return ["MODEL FILE NOT FOUND", "bad"];
+
+    case "SIZE_MISMATCH":
+      return ["FILE SIZE MISMATCH", "bad"];
 
     case "CHECKSUM_MISMATCH":
       return ["CHECKSUM MISMATCH", "bad"];
@@ -710,7 +721,72 @@ export function getPersonTrackingSnapshot() {
   return tracker.getSnapshot();
 }
 
+/*
+ * The selected target for motion decisions: the RAW detected box in video
+ * pixels (never the smoothed drawing box), the frame size, the tracker
+ * state and the timestamps (same clock as requestAnimationFrame).
+ * Returns null when nothing is selected. Read-only copies.
+ */
+export function getSelectedTarget() {
+
+  const target = tracker.getTarget();
+
+  if (!target) return null;
+
+  return {
+    ...target,
+    now: lastFrameTimestamp,
+    cameraLive: isMotionInputLive()
+  };
+}
+
+/* Detection is running AND the camera is delivering fresh frames. */
+function isMotionInputLive() {
+  return running && isCameraLive() && !cameraStalled();
+}
+
+// Receives the motion decision on every processed frame, and whenever the
+// selection or the camera changes. It only reports; nothing drives a motor.
+let motionListener = null;
+let lastMotion = {
+  command: MOTION_COMMAND.STOP,
+  reason: MOTION_REASON.CAMERA_UNAVAILABLE
+};
+
+export function setMotionDecisionListener(listener) {
+
+  motionListener = listener;
+  publishMotion();
+}
+
+export function getMotionDecision() {
+  return lastMotion;
+}
+
+function publishMotion() {
+
+  const target = tracker.getTarget();
+
+  // No selection (or stopped) means STOP, with the camera state as input.
+  lastMotion = decideMotion(
+    target
+      ? { ...target, now: lastFrameTimestamp, cameraLive: isMotionInputLive() }
+      : { cameraLive: isMotionInputLive(), state: tracker.getSnapshot().state }
+  );
+
+  if (!motionListener) return;
+
+  try {
+    motionListener(lastMotion);
+  } catch (error) {
+    // A failing display must never leave a stale movement command behind.
+    console.error("Motion listener failed:", error);
+  }
+}
+
 function notifyTracking(force = false) {
+
+  publishMotion();
 
   if (!trackingListener) return;
 

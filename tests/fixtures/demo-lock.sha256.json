@@ -1,0 +1,25 @@
+{
+  "note": "SHA-256 of every Demo source file under firmware/esp32-follow (pasted-content dumps excluded). The Motor Test work must not change them. Update ONLY with a separate, explicit Demo approval.",
+  "files": {
+    "README.md": "47fbbee14a8caa46efe43251bac877d5d7213b6118af1085d9e42044c4d868e1",
+    "config.h": "a35aeeae9c47b533d9fc4e6f499e14ecaf7e6a08772ed9433ecf089842a00d20",
+    "esp32-follow.ino": "7a53502858bf5f2937d7445bf03e1d077e00641c1987bf1e1ed419061204dc3c",
+    "host/conformance_main.cpp": "06b8a2615b951bc939827479570de5c0a9ca398b038d1baadd7a635519ba9d1d",
+    "host/firmware_test.cpp": "21abf916b7a18728aff4b943b7eb8a224bfffd955b42ac44664c4f0d45113824",
+    "host/stubs/Arduino.h": "e1b839f1b0923a91195cec0c36fabc30fe8b1e30b29daa510ef9894573c54efe",
+    "host/stubs/README.txt": "34b46064100dbcf2aa46a9b9084eda851d1d429b86b81853e0b8307fe764a877",
+    "host/stubs/WiFi.h": "ea646342afdd37df2aa90638561e2f2c4965dc6429e74f8c520e024dfa42a215",
+    "host/stubs/esp_system.h": "cabb4b3d858e27eac49f8f9f5420982058b71df005b09439e726aa1a457a9d32",
+    "host/stubs/esp_timer.h": "be765ba0ccbcaf3ab6929b350435d114dba9b6317b784e68676c55d1a775fc13",
+    "host/stubs/wifi_secrets.h": "dfc9a429716d78f744089ab7ab52d152d4cdb1eb2348d553de313499a183f2e7",
+    "json_lite.h": "38880f48231c19d60a544eaada9e42b2553eb4f2fdff043cd0524337b0973ea7",
+    "motor_hal.h": "d915fa9b8bbab4eaa2ede81c8277c1ce4a99c53b384ff55a1a1583ce651a32ae",
+    "protocol.h": "b7f944ab8538b2a58a6733bca9510429c6d9ba8a8beb074bddde40bb1f424218",
+    "safety.h": "26d3bd83bda57b05bdd366e20a97a178d9a383325a0eb3d34ad14b334f97092d",
+    "ultrasonic.h": "ab95bfd36268d14ff1bf553061a3310200dc53725e3839607c15e95fbaa11d85",
+    "wifi_secrets.example.h": "17e9261217d67b0dce0ce2a2ed5d32f5ceff448de583011a3788e87ad5d7c49b",
+    "ws_frame.h": "846fca68815975eee6dd7471edbbcd0f1d3420543f2eb309b0842e7afc2eb95e",
+    "ws_handshake.h": "7169eb9f584d1e28d2e57788254c895b8afd7f51e4e4895509fa15c3c48a9163",
+    "ws_server.h": "af88bc710a9d167dbfe4487e33a83d57bbc381fbd0d9c190d4fbe3f663418f46"
+  }
+}

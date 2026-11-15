@@ -1,8 +1,12 @@
 import {
   initOwnerAI,
   startOwnerAI,
-  stopOwnerAI
+  stopOwnerAI,
+  setMotionDecisionListener,
+  getSelectedTarget
 } from "./ai-owner.js";
+import { createEsp32Session } from "./esp32-session.js";
+import { createMockDeviceNetwork } from "./mock-socket.js";
 import { initLegacyOwnerData }
   from "./legacy-owner-data.js";
 import { initPersonSelection }
@@ -66,12 +70,14 @@ function resetToStopped({ cameraStatus, systemStatus }) {
   stopCamera();
   stopOwnerAI();
   setFaceCropEnabled(false);
+  session.setDecision("STOP", null);
 
   setStatus("fpsValue", "0 FPS");
   setStatus("cameraStatus", cameraStatus);
   setStatus("resolution", "Resolution: --");
   showCameraLabel(null);
   setStatus("systemStatus", systemStatus);
+  setStatus("motorStatus", "STOP");
 
   startBtn.disabled = false;
   stopBtn.disabled = true;
@@ -158,6 +164,115 @@ stopBtn.addEventListener("click", () => {
 video.addEventListener("error", () => {
   setStatus("cameraStatus", "VIDEO ERROR");
 });
+
+// ---------------------------------------------------------------------------
+// ESP32 link (M0). The motion decision still comes only from ai-owner.js /
+// motion-decision.js; the session adds the transport, reconnect and the
+// ARM / FOLLOW gate. The link (esp32-link.js) keeps every safety rule.
+// "mock://device" talks to the in-page Mock ESP32: it is NOT hardware.
+// ---------------------------------------------------------------------------
+
+let mockNetwork = null;
+
+const session = createEsp32Session({
+  createSocket(url) {
+    if (url.startsWith("mock://")) {
+      mockNetwork ??= createMockDeviceNetwork();
+      return mockNetwork.createSocket(url);
+    }
+    return new WebSocket(url);
+  }
+});
+
+setMotionDecisionListener(decision => {
+
+  setStatus("motorStatus", decision.command);
+
+  // The ORIGINAL detection time of the target behind this decision.
+  const target = getSelectedTarget();
+
+  try {
+    session.setDecision(decision.command, target ? target.lastSeenMs : null);
+  } catch (error) {
+    console.error("ESP32 session failed; forcing STOP:", error);
+    try { session.setDecision("STOP", null); } catch { /* nothing more to do */ }
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) session.hide(); else session.show();
+});
+window.addEventListener("pagehide", () => session.hide());
+window.addEventListener("pageshow", () => { if (!document.hidden) session.show(); });
+
+const espUrl = document.getElementById("espUrl");
+const espConnectBtn = document.getElementById("espConnectBtn");
+const espDisconnectBtn = document.getElementById("espDisconnectBtn");
+const espFollowBtn = document.getElementById("espFollowBtn");
+const espEstopBtn = document.getElementById("espEstopBtn");
+const espClearEstopBtn = document.getElementById("espClearEstopBtn");
+
+espConnectBtn.addEventListener("click", () => session.connect(espUrl.value));
+espDisconnectBtn.addEventListener("click", () => session.disconnect());
+espFollowBtn.addEventListener("click", () => {
+  session.setFollow(!session.getStatus().follow);
+});
+espEstopBtn.addEventListener("click", () => session.emergencyStop());
+espClearEstopBtn.addEventListener("click", () => session.clearEmergency());
+
+/*
+ * The motor the DEVICE reported in a valid ACK of the CURRENT session, or "—".
+ * Display only: it changes no command, timer or protocol rule.
+ *   - ESTOP latched, or no open socket / no established link: "—".
+ *   - esp32-link clears lastOkAckAt whenever a session ends and sets it only
+ *     from a valid ok:true ACK. While it is null, any value the link still
+ *     holds belongs to a PREVIOUS session, so nothing is shown until the new
+ *     session's first valid ACK arrives.
+ */
+function deviceMotorText(status) {
+
+  const link = status.link;
+
+  if (status.emergency) return "—";
+  if (status.socket !== "OPEN" || !link.connected) return "—";
+  if (link.lastOkAckAt === null || link.lastOkAckAt === undefined) return "—";
+
+  return link.deviceMotor ?? "—";
+}
+
+function renderEspLink() {
+
+  const status = session.getStatus();
+  const link = status.link;
+  const mock = typeof status.url === "string" && status.url.startsWith("mock://");
+
+  let label = "DISCONNECTED";
+  if (status.emergency) label = "ESTOP LATCHED";
+  else if (status.hidden) label = "PAUSED (PAGE HIDDEN)";
+  else if (status.desired && !link.connected && link.busyStart !== null) label = "DEVICE BUSY";
+  else if (link.connected) label = status.follow ? "FOLLOWING ENABLED" : "CONNECTED (STOP)";
+  else if (status.desired) label = "CONNECTING";
+
+  setStatus("espLinkState", mock && status.desired ? `${label} - MOCK, NOT HARDWARE` : label);
+  setStatus("espStatus", label);
+
+  espConnectBtn.disabled = status.desired;
+  espDisconnectBtn.disabled = !status.desired;
+  espFollowBtn.disabled = !status.follow && !(link.connected && !status.emergency);
+  espFollowBtn.textContent = status.follow ? "FOLLOW OFF" : "ARM / FOLLOW";
+  espClearEstopBtn.hidden = !status.emergency;
+
+  setStatus("espDetail", [
+    `socket: ${status.socket}   link: ${link.state}`,
+    `follow: ${status.follow ? "ON" : "OFF"}   estop: ${status.emergency ? "LATCHED" : "no"}`,
+    `sending: ${link.effective?.command ?? "-"} (${link.effective?.reason ?? "-"})`,
+    `device motor: ${deviceMotorText(status)}   rtt: ${link.rttEst ?? "-"} ms`,
+    `last: ${status.lastEvent ?? "-"}   resync: ${link.lastResyncReason ?? "-"}`
+  ].join("\n"));
+}
+
+setInterval(renderEspLink, 250);
+renderEspLink();
 
 initLegacyOwnerData();
 initFaceCropExport();

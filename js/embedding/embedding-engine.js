@@ -23,7 +23,7 @@ ort.env.wasm.wasmPaths =
 // --------------------------------------------------
 
 /*
- * code: NETWORK | NOT_FOUND | HTTP_ERROR | EMPTY_FILE |
+ * code: NO_INTEGRITY | NETWORK | NOT_FOUND | HTTP_ERROR | EMPTY_FILE |
  *       SIZE_MISMATCH | CHECKSUM_MISMATCH | SESSION_ERROR
  */
 export class ModelLoadError extends Error {
@@ -249,10 +249,13 @@ async function fetchModelBytes(modelPath, options) {
 // --------------------------------------------------
 
 /*
- * options (all optional):
- *   expectedSize    bytes; rejects a truncated or wrong file
- *   expectedSha256  hex; rejects a different file and enables the cache
- *   onStatus(state, extra)  DOWNLOADING | VERIFYING | LOADING
+ * options:
+ *   expectedSize    REQUIRED, bytes; rejects a truncated or wrong file
+ *   expectedSha256  REQUIRED, 64 hex chars; rejects a different file
+ *   onStatus(state, extra)  DOWNLOADING | VERIFYING | LOADING (optional)
+ *
+ * Fail-closed: without both values nothing is fetched. The file is
+ * checked (size, then SHA-256) BEFORE the ONNX session is created.
  */
 export async function loadEmbeddingModel(
   modelPath,
@@ -268,6 +271,18 @@ export async function loadEmbeddingModel(
     expectedSha256 = null,
     onStatus = () => {}
   } = options;
+
+  if (
+    !Number.isSafeInteger(expectedSize) ||
+    expectedSize <= 0 ||
+    typeof expectedSha256 !== "string" ||
+    !/^[0-9a-fA-F]{64}$/.test(expectedSha256)
+  ) {
+    throw new ModelLoadError(
+      "NO_INTEGRITY",
+      `Refusing to load ${modelPath}: size and SHA-256 are required.`
+    );
+  }
 
   const bytes = await fetchModelBytes(
     modelPath,

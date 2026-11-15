@@ -511,6 +511,26 @@ export function createPersonTracker(options = {}) {
       return items;
     },
 
+    /*
+     * The selected target as last DETECTED (raw box, not the gliding
+     * drawn box), for motion decisions. null when nothing is selected.
+     * Returns copies; the caller cannot change tracker state.
+     */
+    getTarget() {
+
+      if (!selected) return null;
+
+      return {
+        id: selected.id,
+        state,
+        matched: selected.matched,
+        box: copyBox(selected.box),
+        lastSeenMs: selected.lastSeenMs,
+        frameWidth: frame.width,
+        frameHeight: frame.height
+      };
+    },
+
     getSnapshot() {
       return {
         state,

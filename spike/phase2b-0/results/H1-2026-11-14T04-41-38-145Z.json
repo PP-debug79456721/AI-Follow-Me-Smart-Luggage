@@ -1,0 +1,128 @@
+{
+  "schema": "phase2b-0.v1",
+  "fabricated": false,
+  "variant": "H1",
+  "savedAt": "2026-11-14T04:41:37.661Z",
+  "env": {
+    "status": "PASS",
+    "userAgent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36",
+    "isAndroid": true,
+    "chromeVersion": "157.0.0.0",
+    "platform": "Android",
+    "platformVersion": "15.0.0",
+    "model": "SM-A145F",
+    "isSecureContext": true,
+    "protocol": "https:",
+    "host": "urban-trout-q9p4g57pg542j9j-8080.app.github.dev",
+    "hostname": "urban-trout-q9p4g57pg542j9j-8080.app.github.dev",
+    "crossOriginIsolated": false,
+    "onLine": true,
+    "connection": {
+      "type": "wifi",
+      "effectiveType": "4g",
+      "downlink": 5.2,
+      "rtt": 100,
+      "saveData": false
+    },
+    "hasGetUserMedia": true,
+    "hasWakeLock": true,
+    "hasRequestVideoFrameCallback": true,
+    "hasLongTaskObserver": true,
+    "localNetworkPermission": {
+      "local-network-access": "prompt",
+      "local-network": "prompt",
+      "loopback-network": "prompt"
+    },
+    "screen": {
+      "w": 384,
+      "h": 857,
+      "dpr": 2.8125
+    }
+  },
+  "camera": {
+    "ran": true,
+    "status": "PASS",
+    "secureContext": true,
+    "error": null,
+    "startMs": 6073,
+    "label": "camera 2, facing back",
+    "settings": {
+      "aspectRatio": 0.75,
+      "colorTemperature": 0,
+      "deviceId": "805cfdf7020d86ce00c0932ed133d9a24680a894568ac253c8d7ad53404f0616",
+      "exposureCompensation": 0,
+      "exposureMode": "continuous",
+      "exposureTime": 500,
+      "facingMode": "environment",
+      "focusDistance": 0,
+      "focusMode": "continuous",
+      "frameRate": 30,
+      "groupId": "b0a0ddb60801543f189e637ec48c27e9379eba0a113cd331c39eb97396078831",
+      "height": 640,
+      "iso": 0,
+      "resizeMode": "none",
+      "whiteBalanceMode": "continuous",
+      "width": 480,
+      "zoom": 1
+    },
+    "frames": 102,
+    "qualityFrames": 102,
+    "fps": 20.4,
+    "frameGapMs": {
+      "n": 101,
+      "min": 8.2,
+      "p50": 50,
+      "p95": 63.7,
+      "p99": 68.3,
+      "max": 69.7,
+      "mean": 49,
+      "stdev": 9.8
+    },
+    "trackReadyState": "live"
+  },
+  "endpoints": {
+    "ran": true,
+    "status": "PASS",
+    "note": "Application endpoint test; does NOT reproduce the Android OS connectivity check.",
+    "sameOrigin204": {
+      "url": "/generate_204",
+      "ok": true,
+      "status": 204,
+      "type": "basic",
+      "ms": 133
+    },
+    "sameOriginPing": {
+      "url": "/ping",
+      "ok": true,
+      "status": 200,
+      "type": "basic",
+      "ms": 254
+    },
+    "otherOrigin204": null,
+    "otherOriginPing": null
+  },
+  "models": null,
+  "ws": null,
+  "concurrent": null,
+  "stall": null,
+  "mixed": null,
+  "wss": null,
+  "reconnect": null,
+  "hidden": null,
+  "wakeLock": null,
+  "manual": {
+    "phone": "",
+    "android": "",
+    "wifi": "",
+    "mobileData": "unknown",
+    "noInternetPromptSeen": "unknown",
+    "wifiIconNoInternet": "unknown",
+    "phoneKeptWifiForPage": "unknown",
+    "localNetworkPromptSeen": "unknown",
+    "reconnectCause": "none",
+    "certificateExceptionAccepted": "no",
+    "notes": ""
+  },
+  "serverReceivedAt": "2026-11-14T04:41:38.145Z",
+  "clientAddress": "127.0.0.1"
+}

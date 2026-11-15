@@ -247,6 +247,43 @@
 
       </div>
 
+      <div class="esp-panel" id="espPanel">
+
+        <div class="panel-heading">
+          <h2>ESP32 LINK</h2>
+          <span id="espLinkState">DISCONNECTED</span>
+        </div>
+
+        <label class="esp-label" for="espUrl">WebSocket URL</label>
+        <input id="espUrl"
+               type="text"
+               inputmode="url"
+               autocomplete="off"
+               autocapitalize="off"
+               spellcheck="false"
+               placeholder="ws://&lt;ESP32 address&gt;/ws  or  mock://device">
+
+        <div class="controls">
+          <button id="espConnectBtn">CONNECT</button>
+          <button id="espDisconnectBtn" disabled>DISCONNECT</button>
+        </div>
+
+        <div class="controls">
+          <button id="espFollowBtn" disabled>ARM / FOLLOW</button>
+          <button id="espEstopBtn" class="estop">ESTOP</button>
+        </div>
+
+        <button id="espClearEstopBtn" class="esp-clear" hidden>CLEAR ESTOP</button>
+
+        <p class="esp-note" id="espNote">
+          Movement stays STOP until the link is established and ARM / FOLLOW
+          is pressed. Any link loss, hidden page or ESTOP switches FOLLOW off.
+        </p>
+
+        <pre class="esp-detail" id="espDetail">not connected</pre>
+
+      </div>
+
     </section>
 
   </main>

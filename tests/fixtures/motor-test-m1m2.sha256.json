@@ -1,0 +1,9 @@
+{
+  "note": "SHA-256 of the M1-M2 Motor Test sources. M3 and later must not change them. Update ONLY with a separate explicit approval.",
+  "files": {
+    "motor_test_config.h": "93cb4c045efab264986b7593a8ef07e3ca1c473fbdc146273eef1f13eba6a987",
+    "bench_interlock.h": "d77f0f1ed136febf2a7b2f799be25ccd4128323ff73f037b5cc908afc26a66df",
+    "bench_session.h": "d072bfb922c92c7732d17ad8d1c95ec6abe0b03cedba2d3b3f2c04e67e8df2be",
+    "host/motor_test_host.cpp": "f69c153de559a10d8030472333403895ca275531e3d59eeadd36beee41c6842b"
+  }
+}

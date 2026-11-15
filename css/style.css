@@ -483,3 +483,60 @@ footer {
   background: #2a1515;
   color: #ffb3b3;
 }
+
+/* ESP32 link panel (M0). */
+.esp-panel {
+  margin-top: 16px;
+  padding: 14px;
+  background: #101820;
+  border: 1px solid #314454;
+  border-radius: 10px;
+}
+
+.esp-label {
+  display: block;
+  color: #91a4b3;
+  font-size: 10px;
+  margin: 10px 0 6px;
+}
+
+.esp-panel input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px;
+  border: 1px solid #314454;
+  border-radius: 8px;
+  background: #0b1218;
+  color: #e6f1f7;
+  font-size: 13px;
+}
+
+button.estop {
+  background: #e53935;
+  color: #fff;
+}
+
+button.esp-clear {
+  width: 100%;
+  margin-top: 10px;
+  background: #ffb020;
+  color: #241700;
+}
+
+button.esp-clear[hidden] {
+  display: none;
+}
+
+.esp-note {
+  color: #91a4b3;
+  font-size: 11px;
+  margin: 12px 0 8px;
+}
+
+.esp-detail {
+  margin: 0;
+  color: #00ffcc;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

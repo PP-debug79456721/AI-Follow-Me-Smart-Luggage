@@ -24,6 +24,7 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import os from "node:os";
@@ -795,5 +796,208 @@ test("frozen camera (no new frame > 1 s): detection stops, SEARCHING then LOST",
   assert.ok(await reads() > before);
   await tapVideo(page, b.originX + b.width / 2, b.originY + b.height / 2);
   await waitStatus(page, "TRACKING", 2000);
+  await context.close();
+});
+
+// --------------------------------------------------
+// Phase B1.2: fail-closed model loader
+// --------------------------------------------------
+//
+// These tests call the real loader (js/embedding/owner-embedding.js) in the
+// browser. ONNX Runtime is replaced by a stub that only counts session
+// creations, and the "model" is 4 KB of test bytes made here: no real model
+// is downloaded or used. Face recognition stays switched off in the app.
+
+const FAKE_ORT = `
+export const env = { wasm: {} };
+export class Tensor { constructor(type, data, dims) { Object.assign(this, { type, data, dims }); } }
+export const InferenceSession = {
+  async create(bytes) {
+    window.__ortCreates = (window.__ortCreates || 0) + 1;
+    window.__ortBytes = bytes.length;
+    // Same tensor names and shapes as the real SFace file (FACE_MODEL_CONFIG).
+    return {
+      inputNames: ["data"],
+      outputNames: ["fc1"],
+      inputMetadata: [{ name: "data", isTensor: true, type: "float32", shape: [1, 3, 112, 112] }],
+      outputMetadata: [{ name: "fc1", isTensor: true, type: "float32", shape: [1, 128] }],
+      async release() {}
+    };
+  }
+};`;
+
+// An empty same-origin page to run the loader in (the app itself is not opened).
+const BLANK_PAGE = "<!doctype html><meta charset=utf-8><title>loader test</title>";
+
+const MODEL_BYTES = Buffer.from(Array.from({ length: 4096 }, (_, i) => (i * 31 + 7) % 256));
+const MODEL_SHA = createHash("sha256").update(MODEL_BYTES).digest("hex");
+const REPO_MANIFEST = JSON.parse(fs.readFileSync(path.join(ROOT, "models/manifest.json"), "utf8"));
+
+/* The repo manifest with the face entry pointed at the test bytes. */
+function testManifest(faceChanges = {}) {
+  const manifest = structuredClone(REPO_MANIFEST);
+  Object.assign(manifest.models.face, { sizeBytes: MODEL_BYTES.length, sha256: MODEL_SHA }, faceChanges);
+  return manifest;
+}
+
+/*
+ * Opens a page and runs initializeEmbeddingModels().
+ * manifest: object, null (404) or a string (served as-is);
+ * model: Buffer or null (404); query: page query string;
+ * origin: serve the app from another origin (e.g. https://demo.example).
+ */
+async function runLoader({ manifest = testManifest(), model = MODEL_BYTES, query = "", origin = null } = {}) {
+  const context = await browsers.room.newContext();
+  const page = await context.newPage();
+  const requested = [];
+  const base = origin || baseUrl;
+
+  await page.route(/.*/, route => {
+    const url = new URL(route.request().url());
+    const target = `${url.origin}${url.pathname}`;
+    if (/onnxruntime-web@[\d.]+\/dist\/ort\.wasm\.min\.mjs$/.test(target)) {
+      return route.fulfill({ contentType: "text/javascript", body: FAKE_ORT });
+    }
+    if (!target.startsWith(base)) return route.abort();
+    requested.push(url.pathname);
+    if (url.pathname === "/__loader-test.html") return route.fulfill({ contentType: "text/html", body: BLANK_PAGE });
+    if (url.pathname === "/models/manifest.json") {
+      if (manifest === null) return route.fulfill({ status: 404, body: "" });
+      return route.fulfill({ contentType: "application/json", body: typeof manifest === "string" ? manifest : JSON.stringify(manifest) });
+    }
+    if (url.pathname.endsWith(".onnx")) {
+      if (model === null) return route.fulfill({ status: 404, body: "" });
+      return route.fulfill({ contentType: "application/octet-stream", body: model });
+    }
+    if (origin) {   // serve repo files for the foreign origin
+      const file = path.join(ROOT, url.pathname === "/" ? "index.html" : url.pathname);
+      if (!file.startsWith(ROOT + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: "" });
+      return route.fulfill({ contentType: MIME[path.extname(file)] || "application/octet-stream", body: fs.readFileSync(file) });
+    }
+    return route.continue();
+  });
+
+  await page.goto(`${base}/__loader-test.html${query}`);
+  const result = await page.evaluate(async () => {
+    const { initializeEmbeddingModels } = await import("/js/embedding/owner-embedding.js");
+    const events = [];
+    const status = await initializeEmbeddingModels({ onStatus: (key, s) => events.push(`${key}:${s.state}`) });
+    return { status, events, creates: window.__ortCreates || 0, bytes: window.__ortBytes || 0 };
+  });
+  await context.close();
+  return { ...result, modelRequested: requested.some(p => p.endsWith(".onnx")) };
+}
+
+const DEV = "?modelMode=development";
+
+test("B1.2 repo manifest in production: face BLOCKED (not approved), Re-ID NO MODEL, nothing downloaded", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ manifest: REPO_MANIFEST });
+  assert.equal(r.status.face.state, "BLOCKED");
+  assert.equal(r.status.face.reason, "NOT_APPROVED_FOR_PRODUCTION");
+  assert.equal(r.status.reid.state, "NO_MODEL");
+  assert.equal(r.modelRequested, false);
+  assert.equal(r.creates, 0);
+});
+
+test("B1.2 missing manifest: BLOCKED NO_MANIFEST, no default path is tried", { skip: SKIP, timeout: 30000 }, async () => {
+  for (const manifest of [null, "{ not json"]) {
+    const r = await runLoader({ manifest, query: DEV });
+    assert.equal(r.status.face.state, "BLOCKED");
+    assert.equal(r.status.face.reason, "NO_MANIFEST");
+    assert.equal(r.status.reid.reason, "NO_MANIFEST");
+    assert.equal(r.modelRequested, false, "no model file may be requested");
+    assert.equal(r.creates, 0);
+  }
+});
+
+test("B1.2 missing hash or size: BLOCKED NO_INTEGRITY before any download", { skip: SKIP, timeout: 30000 }, async () => {
+  for (const changes of [{ sha256: null }, { sizeBytes: null }, { integrity: "NONE" }]) {
+    const r = await runLoader({ manifest: testManifest(changes), query: DEV });
+    assert.equal(r.status.face.state, "BLOCKED", JSON.stringify(changes));
+    assert.equal(r.status.face.reason, "NO_INTEGRITY");
+    assert.equal(r.modelRequested, false);
+    assert.equal(r.creates, 0);
+  }
+});
+
+test("B1.2 wrong hash: CHECKSUM_MISMATCH and no ONNX session", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ manifest: testManifest({ sha256: "0".repeat(64) }), query: DEV });
+  assert.equal(r.status.face.state, "CHECKSUM_MISMATCH");
+  assert.equal(r.modelRequested, true);
+  assert.equal(r.creates, 0, "session must not be created before the hash passes");
+});
+
+test("B1.2 wrong size: SIZE_MISMATCH and no ONNX session", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ manifest: testManifest({ sizeBytes: MODEL_BYTES.length + 1 }), query: DEV });
+  assert.equal(r.status.face.state, "SIZE_MISMATCH");
+  assert.equal(r.creates, 0);
+});
+
+test("B1.2 invalid status values: BLOCKED (old AVAILABLE, old schema 1)", { skip: SKIP, timeout: 30000 }, async () => {
+  let r = await runLoader({ manifest: testManifest({ use: "AVAILABLE" }), query: DEV });
+  assert.equal(r.status.face.state, "BLOCKED");
+  assert.equal(r.status.face.reason, "INVALID_STATUS");
+  r = await runLoader({ manifest: { ...testManifest(), schemaVersion: 1 }, query: DEV });
+  assert.equal(r.status.face.reason, "INVALID_MANIFEST");
+  assert.equal(r.modelRequested, false);
+  assert.equal(r.creates, 0);
+});
+
+test("B1.2 missing model file: MODEL FILE NOT FOUND, no session", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ model: null, query: DEV });
+  assert.equal(r.status.face.state, "NOT_FOUND");
+  assert.equal(r.creates, 0);
+});
+
+test("B1.2 production refuses an unverified license even if marked APPROVED_FOR_PRODUCTION", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ manifest: testManifest({ use: "APPROVED_FOR_PRODUCTION" }) });
+  assert.equal(r.status.face.state, "BLOCKED");
+  assert.equal(r.status.face.reason, "LICENSE_UNVERIFIED");
+  assert.equal(r.modelRequested, false);
+});
+
+test("B1.2 development mode needs a development host: ignored on another origin", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ query: DEV, origin: "https://demo.example" });
+  assert.equal(r.status.face.state, "BLOCKED");
+  assert.equal(r.status.face.reason, "NOT_APPROVED_FOR_PRODUCTION");
+  assert.equal(r.modelRequested, false);
+});
+
+test("B1.2 development on 127.0.0.1 with a verified file: hash checked, then ONE session", { skip: SKIP, timeout: 30000 }, async () => {
+  const r = await runLoader({ query: DEV });
+  assert.equal(r.status.face.state, "SESSION_LOADED");
+  assert.equal(r.status.face.mode, "development");
+  assert.equal(r.status.face.license, "UNVERIFIED");
+  assert.equal(r.creates, 1);
+  assert.equal(r.bytes, MODEL_BYTES.length);
+  // Order: downloaded and verified before the session was created.
+  const face = r.events.filter(e => e.startsWith("face:"));
+  assert.ok(face.indexOf("face:VERIFYING") < face.indexOf("face:LOADING"), face.join(" "));
+  assert.equal(r.status.reid.state, "NO_MODEL");
+});
+
+test("B1.2 engine refuses to load without size and hash (second line of defence)", { skip: SKIP, timeout: 30000 }, async () => {
+  const context = await browsers.room.newContext();
+  const page = await context.newPage();
+  let modelRequested = false;
+  await page.route(/.*/, route => {
+    const url = route.request().url();
+    if (/ort\.wasm\.min\.mjs$/.test(url)) return route.fulfill({ contentType: "text/javascript", body: FAKE_ORT });
+    if (url.endsWith(".onnx")) { modelRequested = true; return route.fulfill({ body: MODEL_BYTES }); }
+    if (url.endsWith("/__loader-test.html")) return route.fulfill({ contentType: "text/html", body: BLANK_PAGE });
+    return url.startsWith(baseUrl) ? route.continue() : route.abort();
+  });
+  await page.goto(`${baseUrl}/__loader-test.html`);
+  const codes = await page.evaluate(async sha => {
+    const { loadEmbeddingModel } = await import("/js/embedding/embedding-engine.js");
+    const out = [];
+    for (const options of [{}, { expectedSize: 4096 }, { expectedSha256: sha }, { expectedSize: 4096, expectedSha256: "xyz" }]) {
+      try { await loadEmbeddingModel("./models/face/face_recognition_sface_2021dec.onnx", options); out.push("LOADED"); }
+      catch (error) { out.push(error.code || error.message); }
+    }
+    return out;
+  }, MODEL_SHA);
+  assert.deepEqual(codes, ["NO_INTEGRITY", "NO_INTEGRITY", "NO_INTEGRITY", "NO_INTEGRITY"]);
+  assert.equal(modelRequested, false);
   await context.close();
 });
