@@ -6,6 +6,8 @@ import {
   getSelectedTarget,
   STOP_HEIGHT_OVERRIDE,
   ownerFeaturesEnabled,
+  ownerClothesEnabled,
+  rememberOwnerClothes,
   startOwnerEnrolment,
   findOwner,
   forgetOwner
@@ -432,9 +434,15 @@ setInterval(() => { renderEspLink(); updateWakeLock(); }, 250);
 renderEspLink();
 
 // Owner recognition controls (bench, localhost only; see ai-owner.js).
-if (ownerFeaturesEnabled()) {
+if (ownerClothesEnabled()) {
   document.getElementById("ownerControls").hidden = false;
   document.getElementById("ownerHint").hidden = false;
+  document.getElementById("ownerEnrolBtn").hidden = !ownerFeaturesEnabled();
+  document.getElementById("ownerClothesBtn").addEventListener("click", () => {
+    const r = rememberOwnerClothes();
+    if (!r.ok) setStatus("ownerStatus", r.reason === "SELECT_OWNER_FIRST"
+      ? "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)" : "จำเสื้อผ้าไม่สำเร็จ");
+  });
   document.getElementById("ownerEnrolBtn").addEventListener("click", () => {
     const r = startOwnerEnrolment();
     if (!r.ok) setStatus("ownerStatus", r.reason === "SELECT_OWNER_FIRST"

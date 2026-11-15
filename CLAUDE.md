@@ -190,7 +190,10 @@ before Upload. Small changes are safer made inside the IDE.
   128-D vectors in localStorage `owner.face.v1` (no images), cosine >= 0.363, 3 of 5 rounds, margin 0.05,
   at most 2 faces per 0.7 s. Back view: clothing colour signature (torso + legs hue/sat histograms) of the
   followed box, refreshed every 0.5 s only while it overlaps nobody, Bhattacharyya >= 0.80, margin 0.06,
-  3 of 5 rounds. Auto-select only while NOT_SELECTED/LOST, never after CLEAR SELECTION until a tap or
+  3 of 5 rounds. Method A (clothing) works without the face model and also in lite mode: REMEMBER CLOTHES
+  takes a fresh signature of the followed box (stored in localStorage `owner.cloth.v1`, histograms only);
+  OWNER line shows `เสื้อผ้าตรง <score>` while following and the best candidate score while LOST.
+  Auto-select only while NOT_SELECTED/LOST, never after CLEAR SELECTION until a tap or
   FIND OWNER; ambiguous -> nobody. Thresholds are starting values, not tuned on the real camera.
   tests/e2e/phase-c expects the face model row "OFF" on localhost and will need updating.
 

@@ -766,6 +766,7 @@ export function startOwnerAI() {
 // user taps someone or presses FIND OWNER.
 
 const OWNER_STORE = "owner.face.v1";      // 128-D vectors only, never images
+const CLOTH_STORE = "owner.cloth.v1";     // colour histograms only, never images
 const ENROL_SAMPLES = 5;
 const FACE_ROUND_MS = 700;                // at most one SFace round per 0.7 s
 const MIN_FACE_PX = 40;                   // smaller faces are skipped
@@ -774,7 +775,9 @@ const SIGNATURE_W = 24;
 const SIGNATURE_H = 48;
 
 let ownerFaces = loadOwnerFaces();
-let ownerSignature = null;
+let ownerSignature = loadClothSignature();
+let clothScore = NaN;                     // fresh crop of the followed box vs the remembered clothes
+let lastClothSaveAt = 0;
 let ownerAutoPaused = false;
 let ownerLastScore = NaN;
 let ownerLastEvent = "";
@@ -817,6 +820,22 @@ function loadOwnerFaces() {
   }
 }
 
+function loadClothSignature() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CLOTH_STORE) || "null");
+    return raw && Array.isArray(raw.upper) && Array.isArray(raw.lower) ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveClothSignature() {
+  try {
+    if (ownerSignature) localStorage.setItem(CLOTH_STORE, JSON.stringify(ownerSignature));
+    else localStorage.removeItem(CLOTH_STORE);
+  } catch { /* storage full/blocked */ }
+}
+
 function saveOwnerFaces() {
   try { localStorage.setItem(OWNER_STORE, JSON.stringify(ownerFaces)); } catch { /* storage full/blocked */ }
 }
@@ -842,12 +861,16 @@ async function faceModelReady() {
 }
 
 function ownerStatusText() {
-  if (!OWNER_FEATURES) return UNVERIFIED_TEXT;
+  if (!OWNER_HOST) return UNVERIFIED_TEXT;
   if (enrolRemaining > 0) return `กำลังลงทะเบียนหน้า… เหลือ ${enrolRemaining}`;
   const score = Number.isFinite(ownerLastScore) ? ` ${ownerLastScore.toFixed(2)}` : "";
   const parts = [];
-  parts.push(ownerFaces.length ? `หน้าเจ้าของ ${ownerFaces.length} ภาพ` : "ยังไม่ลงทะเบียนหน้า");
-  parts.push(ownerSignature ? "จำเสื้อผ้าแล้ว" : "ยังไม่จำเสื้อผ้า");
+  if (OWNER_FEATURES) {
+    parts.push(ownerFaces.length ? `หน้าเจ้าของ ${ownerFaces.length} ภาพ` : "ยังไม่ลงทะเบียนหน้า");
+  }
+  if (!ownerSignature) parts.push("ยังไม่จำเสื้อผ้า");
+  else if (followingSomeone() && Number.isFinite(clothScore)) parts.push(`เสื้อผ้าตรง ${clothScore.toFixed(2)}`);
+  else parts.push("จำเสื้อผ้าแล้ว");
   if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
   if (ownerLastEvent) parts.push(ownerLastEvent + score);
   return parts.join(" · ");
@@ -903,7 +926,14 @@ function ownerAfterPersons(timestamp) {
     if (alone) {
       lastSignatureAt = timestamp;
       const sig = signatureOf(target.box);
-      if (sig) ownerSignature = blendSignature(ownerSignature, sig, ownerSignature ? 0.1 : 1);
+      if (sig) {
+        clothScore = ownerSignature ? signatureSimilarity(ownerSignature, sig) : NaN;
+        ownerSignature = blendSignature(ownerSignature, sig, ownerSignature ? 0.1 : 1);
+        if (timestamp - lastClothSaveAt >= 5000) {
+          lastClothSaveAt = timestamp;
+          saveClothSignature();
+        }
+      }
     }
   }
 
@@ -911,6 +941,7 @@ function ownerAfterPersons(timestamp) {
     resetOwnerAgreements();
     return;
   }
+  clothScore = NaN;
 
   // Re-acquire from behind (clothing), only after this session followed the owner.
   if (ownerAutoPaused || !ownerSignature || lastPersonBoxes.length === 0) return;
@@ -919,6 +950,8 @@ function ownerAfterPersons(timestamp) {
     box: b,
     score: signatureSimilarity(ownerSignature, signatureOf(b))
   }));
+  const best = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
+  if (Number.isFinite(best)) ownerLastScore = best;
   const agreed = clothAgreement.push(candidates);
   if (agreed) {
     ownerLastScore = agreed.score;
@@ -1007,7 +1040,10 @@ function ownerAfterFaces(faceList, timestamp, width, height) {
 export function startOwnerEnrolment() {
   if (!OWNER_FEATURES) return { ok: false, reason: "NOT_LOCALHOST" };
   const target = tracker.getTarget();
-  if (!target || target.state !== "TRACKING") return { ok: false, reason: "SELECT_OWNER_FIRST" };
+  if (!target || target.state !== "TRACKING") {
+    ownerLastEvent = "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)";
+    return { ok: false, reason: "SELECT_OWNER_FIRST" };
+  }
   enrolRemaining = ENROL_SAMPLES;
   ownerLastEvent = "";
   return { ok: true };
@@ -1018,10 +1054,32 @@ export function forgetOwner() {
   ownerFaces = [];
   saveOwnerFaces();
   ownerSignature = null;
+  clothScore = NaN;
+  saveClothSignature();
   enrolRemaining = 0;
   ownerLastScore = NaN;
   ownerLastEvent = "ลบข้อมูลเจ้าของแล้ว";
   resetOwnerAgreements();
+}
+
+/* UI (method A): remember the clothes of the person followed RIGHT NOW,
+   replacing the old signature. Stand alone in the picture (nobody overlapping). */
+export function rememberOwnerClothes() {
+  if (!OWNER_HOST) return { ok: false, reason: "NOT_LOCALHOST" };
+  const target = tracker.getTarget();
+  if (!target || target.state !== "TRACKING" || !target.matched) {
+    ownerLastEvent = "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)";
+    return { ok: false, reason: "SELECT_OWNER_FIRST" };
+  }
+  const sig = signatureOf(target.box);
+  if (!sig) return { ok: false, reason: "NO_PIXELS" };
+  ownerSignature = sig;
+  clothScore = 1;
+  saveClothSignature();
+  ownerLastEvent = "จำเสื้อผ้าใหม่แล้ว";
+  ownerLastScore = NaN;
+  resetOwnerAgreements();
+  return { ok: true };
 }
 
 /* UI: allow automatic re-acquire again after CLEAR SELECTION. */
@@ -1033,6 +1091,10 @@ export function findOwner() {
 
 export function ownerFeaturesEnabled() {
   return OWNER_FEATURES;
+}
+
+export function ownerClothesEnabled() {
+  return OWNER_HOST;
 }
 
 // --------------------------------------------------
@@ -1164,7 +1226,6 @@ export function selectPersonAt(x, y) {
   // signature is taken again from this person.
   if (result.ok) {
     ownerAutoPaused = false;
-    ownerSignature = null;
     resetOwnerAgreements();
   }
 

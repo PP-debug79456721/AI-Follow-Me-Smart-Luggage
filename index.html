@@ -65,14 +65,15 @@
           การแตะไม่ใช่การยืนยันตัวตน ทุกกรอบจึงเป็น "ยังไม่ยืนยันตัวตน"
         </p>
         <div class="track-row owner-row" id="ownerControls" hidden>
+          <button id="ownerClothesBtn">REMEMBER CLOTHES</button>
           <button id="ownerEnrolBtn">ENROL OWNER FACE</button>
           <button id="ownerFindBtn">FIND OWNER</button>
           <button id="ownerForgetBtn">FORGET OWNER</button>
         </div>
         <p class="track-hint" id="ownerHint" hidden>
-          เจ้าของ (ทดสอบบนคอมเท่านั้น): แตะเลือกตัวเอง หันหน้าเข้ากล้อง แล้วกด ENROL OWNER FACE
-          ระบบจำเสื้อผ้าของคนที่กำลังติดตามไว้ด้วย เมื่อหลุดจะหาเจ้าของคืนเองจากหน้าหรือเสื้อผ้า
-          (โมเดลหน้าต้องเปิดด้วย ?modelMode=development)
+          เจ้าของ (ทดสอบบนคอมเท่านั้น): แตะเลือกตัวเอง ยืนคนเดียวเต็มตัว แล้วกด REMEMBER CLOTHES
+          ระบบจำสีเสื้อและกางเกง เมื่อหลุด (LOST) จะหาเจ้าของคืนเองจากสีเสื้อผ้า แม้หันหลัง
+          ENROL OWNER FACE เป็นตัวเสริม (ต้องเปิดด้วย ?modelMode=development)
         </p>
       </div>
 
