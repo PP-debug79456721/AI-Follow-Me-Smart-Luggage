@@ -214,8 +214,10 @@ const session = createEsp32Session({
 // >= 1200 and evidenceMaxMs >= 1500 (esp32-follow.ino), see DEMO_LINK below.
 const smoother = createMotionSmoother({
   ...(DEMO_MODE ? { holdMs: 1000 } : {}),
-  // ?stop=: resume 0.10 below the stop height (default stop 0.80 / resume 0.70)
-  ...(STOP_HEIGHT_OVERRIDE ? { resumeHeightRatio: STOP_HEIGHT_OVERRIDE - 0.10 } : {})
+  // Resume 0.05 below the stop height (owner's choice: stop 95 % / resume 90 %).
+  // A smaller gap restarts sooner but may stop-go more when the owner stands
+  // right at the threshold.
+  ...(STOP_HEIGHT_OVERRIDE ? { resumeHeightRatio: STOP_HEIGHT_OVERRIDE - 0.05 } : {})
 });
 
 setMotionDecisionListener(decision => {

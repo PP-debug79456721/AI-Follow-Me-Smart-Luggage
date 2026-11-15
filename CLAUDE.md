@@ -180,7 +180,7 @@ before Upload. Small changes are safer made inside the IDE.
   stay immediate STOPs.
 - DEMO mode `?mode=demo`: holdMs 1000, ageClaimMaxMs 1200, evidenceMaxMs 1500 (normal 450 / 700).
 - Stop height: bench default 0.95 (BENCH_STOP_HEIGHT in ai-owner.js; motion-decision default stays 0.80),
-  `?stop=0.80` overrides. MOTOR COMMAND shows the box height %.
+  `?stop=0.80` overrides. Resume 0.05 below it (95 % / 90 %). MOTOR COMMAND shows the box height %.
 
 Safety rules the owner agreed to keep: no "never stop" mode. ESTOP, link loss, lost owner, camera loss
 always stop. The hardware E-STOP switch is the independent kill.
