@@ -233,8 +233,37 @@ setMotionDecisionListener(decision => {
   }
 });
 
+// Keep the phone screen on while FOLLOW is on. A screen that dims or locks
+// hides the page, which (on purpose) stops the luggage and drops FOLLOW; on the
+// bench that happened about once a minute. Needs a secure context (the
+// chrome://flags origin on the phone counts). Released when FOLLOW is off; the
+// browser drops it whenever the page is hidden, so it is taken again on show.
+let wakeLock = null;
+let wakeLockBusy = false;
+
+async function updateWakeLock() {
+  if (wakeLockBusy) return;
+  const want = session.getStatus().follow && !document.hidden;
+  wakeLockBusy = true;
+  try {
+    if (want && !wakeLock && navigator.wakeLock?.request) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } else if (!want && wakeLock) {
+      const lock = wakeLock;
+      wakeLock = null;
+      await lock.release();
+    }
+  } catch (error) {
+    console.warn("Screen wake lock unavailable:", error);
+  } finally {
+    wakeLockBusy = false;
+  }
+}
+
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) session.hide(); else session.show();
+  updateWakeLock();
 });
 window.addEventListener("pagehide", () => session.hide());
 window.addEventListener("pageshow", () => { if (!document.hidden) session.show(); });
@@ -250,6 +279,7 @@ espConnectBtn.addEventListener("click", () => session.connect(espUrl.value));
 espDisconnectBtn.addEventListener("click", () => session.disconnect());
 espFollowBtn.addEventListener("click", () => {
   session.setFollow(!session.getStatus().follow);
+  updateWakeLock();
 });
 espEstopBtn.addEventListener("click", () => session.emergencyStop());
 espClearEstopBtn.addEventListener("click", () => session.clearEmergency());
@@ -306,7 +336,7 @@ function renderEspLink() {
   ].join("\n"));
 }
 
-setInterval(renderEspLink, 250);
+setInterval(() => { renderEspLink(); updateWakeLock(); }, 250);
 renderEspLink();
 
 initLegacyOwnerData();
