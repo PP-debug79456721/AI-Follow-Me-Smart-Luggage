@@ -9,6 +9,7 @@ import {
   boxIoU, personForFace, cosine, bestFaceScore,
   colorSignature, signatureSimilarity, blendSignature,
   albumScore, learnIntoAlbum,
+  vectorAlbumScore, learnIntoVectorAlbum,
   createAgreement, RECOGNIZER_DEFAULTS
 } from "../js/owner-recognizer.js";
 
@@ -156,4 +157,26 @@ test("album keeps view 0 and at most maxViews", () => {
   }
   assert.equal(album.length, 3);
   assert.equal(album[0], base);
+});
+
+test("Re-ID vector album: blend, add, skip, unit length", () => {
+  const a = [1, 0, 0, 0];
+  const nearA = [0.99, 0.1, 0, 0];           // cos ~0.995 -> blend
+  const side = [0.7, 0.7, 0, 0];             // cos ~0.71 -> new view
+  const other = [0, 0, 1, 0];                // cos 0 -> skip
+  let r = learnIntoVectorAlbum([], [2, 0, 0, 0]);
+  assert.equal(r.action, "add");
+  assert.ok(Math.abs(r.album[0][0] - 1) < 1e-9);
+  r = learnIntoVectorAlbum(r.album, nearA);
+  assert.equal(r.action, "blend");
+  r = learnIntoVectorAlbum(r.album, side);
+  assert.equal(r.action, "add");
+  r = learnIntoVectorAlbum(r.album, other);
+  assert.equal(r.action, "skip");
+  assert.equal(r.album.length, 2);
+  for (const v of r.album) assert.ok(Math.abs(Math.hypot(...v) - 1) < 1e-9);
+  assert.ok(vectorAlbumScore(r.album, side) > 0.99);
+  assert.ok(vectorAlbumScore(r.album, other) < 0.1);
+  assert.equal(learnIntoVectorAlbum(r.album, [0, 0, 0, 0]).action, "skip");
+  void a;
 });

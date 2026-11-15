@@ -184,7 +184,7 @@ before Upload. Small changes are safer made inside the IDE.
 - Stop height: bench default 0.95 (BENCH_STOP_HEIGHT in ai-owner.js; motion-decision default stays 0.80),
   `?stop=0.80` overrides. Resume 0.08 below it (95 % / 87 %; 0.05 stop-went). MOTOR COMMAND shows the box height %.
 
-- **Owner recognition (localhost only, not in lite mode)** — `js/owner-recognizer.js` (pure, 14 tests) +
+- **Owner recognition (localhost only, not in lite mode)** — `js/owner-recognizer.js` (pure, 15 tests) +
   owner section in `ai-owner.js` + buttons ENROL OWNER FACE / FIND OWNER / FORGET OWNER (index.html, app.js).
   Face: SFace via model-policy (needs `http://localhost:8000/?modelMode=development`), 5 samples stored as
   128-D vectors in localStorage `owner.face.v1` (no images), cosine >= 0.363, 3 of 5 rounds, margin 0.05,
@@ -195,6 +195,11 @@ before Upload. Small changes are safer made inside the IDE.
   stored in localStorage `owner.cloth.v2` (histograms only). ADD VIEW adds the current view manually; while
   TRACKING alone, crops >= 0.88 blend into a view, 0.55-0.88 become a new view (max 1 per 2 s), < 0.55 skipped;
   OWNER line shows `เสื้อผ้าตรง <score>` while following and the best candidate score while LOST.
+  **Re-ID (OSNet x0.25 MSMT17, chosen 2026-11-15, see models/MODEL_METADATA.md "reid")**: code ready
+  (`reid-model-config.js`, Re-ID album `owner.reid.v1` up to 12 x 512-D, learn while TRACKING alone 1/s,
+  re-acquire every 0.5 s on <= 3 boxes, cosine >= 0.65 margin 0.05, 3 of 5; when loaded it decides instead
+  of clothing). Loads only with ?modelMode=development once the owner's checkpoint is converted with
+  `tools/convert-osnet-to-onnx.py` and manifest `reid` gets size/SHA-256 + DEVELOPMENT_ONLY.
   Auto-select only while NOT_SELECTED/LOST, never after CLEAR SELECTION until a tap or
   FIND OWNER; ambiguous -> nobody. Thresholds are starting values, not tuned on the real camera.
   tests/e2e/phase-c expects the face model row "OFF" on localhost and will need updating.

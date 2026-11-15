@@ -23,6 +23,9 @@ import {
   signatureSimilarity,
   albumScore,
   learnIntoAlbum,
+  vectorAlbumScore,
+  learnIntoVectorAlbum,
+  REID_ALBUM_DEFAULTS,
   ALBUM_DEFAULTS,
   createAgreement,
   RECOGNIZER_DEFAULTS
@@ -770,6 +773,10 @@ export function startOwnerAI() {
 const OWNER_STORE = "owner.face.v1";      // 128-D vectors only, never images
 const CLOTH_STORE = "owner.cloth.v2";     // album of colour histograms only, never images
 const CLOTH_ADD_GAP_MS = 2000;            // at most one new automatic view per 2 s
+const REID_STORE = "owner.reid.v1";       // 512-D OSNet vectors only, never images
+const REID_LEARN_MS = 1000;               // learn the followed person at most once per second
+const REID_SEARCH_MS = 500;               // re-acquire round at most every 0.5 s
+const REID_MAX_CANDIDATES = 3;
 const ENROL_SAMPLES = 5;
 const FACE_ROUND_MS = 700;                // at most one SFace round per 0.7 s
 const MIN_FACE_PX = 40;                   // smaller faces are skipped
@@ -780,6 +787,12 @@ const SIGNATURE_H = 48;
 let ownerFaces = loadOwnerFaces();
 let ownerAlbum = loadClothAlbum();       // [view0 (REMEMBER CLOTHES), learned views...]
 let lastClothAddAt = 0;
+let reidAlbum = loadReidAlbum();
+let reidScore = NaN;                      // followed person vs the Re-ID album
+let reidBusy = false;
+let lastReidLearnAt = 0;
+let lastReidAddAt = 0;
+let lastReidSearchAt = 0;
 let clothScore = NaN;                     // fresh crop of the followed box vs the remembered clothes
 let lastClothSaveAt = 0;
 let ownerAutoPaused = false;
@@ -808,9 +821,18 @@ const clothAgreement = createAgreement({
   sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
 });
 
+const reidAgreement = createAgreement({
+  threshold: RECOGNIZER_DEFAULTS.reidThreshold,
+  margin: RECOGNIZER_DEFAULTS.reidMargin,
+  window: RECOGNIZER_DEFAULTS.window,
+  need: RECOGNIZER_DEFAULTS.need,
+  sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
+});
+
 function resetOwnerAgreements() {
   faceAgreement.reset();
   clothAgreement.reset();
+  reidAgreement.reset();
 }
 
 function loadOwnerFaces() {
@@ -822,6 +844,25 @@ function loadOwnerFaces() {
   } catch {
     return [];
   }
+}
+
+function loadReidAlbum() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(REID_STORE) || "[]");
+    return Array.isArray(raw)
+      ? raw.filter(v => Array.isArray(v) && v.length === 512 && v.every(Number.isFinite))
+          .slice(0, REID_ALBUM_DEFAULTS.maxViews)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveReidAlbum() {
+  try {
+    if (reidAlbum.length === 0) localStorage.removeItem(REID_STORE);
+    else localStorage.setItem(REID_STORE, JSON.stringify(reidAlbum));
+  } catch { /* storage full/blocked */ }
 }
 
 function loadClothAlbum() {
@@ -854,8 +895,10 @@ async function getFaceModule() {
   if (!faceModule) {
     faceModule = Promise.all([
       import("./embedding/face-embedding.js"),
-      import("./embedding/owner-embedding.js")
-    ]).then(([face, owner]) => ({ face, owner }));
+      import("./embedding/owner-embedding.js"),
+      import("./embedding/reid-embedding.js"),
+      import("./embedding/reid-model-config.js")
+    ]).then(([face, owner, reid, reidConfig]) => ({ face, owner, reid, reidConfig }));
   }
   return faceModule;
 }
@@ -870,6 +913,85 @@ async function faceModelReady() {
   }
 }
 
+/* True when the OSNet Re-ID session is loaded (development mode, file present). */
+let reidReadyCache = false;
+async function reidModelReady() {
+  if (!OWNER_FEATURES) return false;
+  try {
+    const { owner } = await getFaceModule();
+    reidReadyCache = owner.getEmbeddingModelStatus().reid?.state === "SESSION_LOADED";
+  } catch {
+    reidReadyCache = false;
+  }
+  return reidReadyCache;
+}
+
+async function reidVector(box) {
+  const { reid, reidConfig } = await getFaceModule();
+  // The crop is taken synchronously from the current video frame before
+  // the first await inside createEmbedding.
+  const v = await reid.generateReIDEmbedding(video, box, reidConfig.REID_MODEL_CONFIG);
+  return Array.from(v);
+}
+
+/* Learn the followed person (TRACKING, alone) into the Re-ID album. */
+function reidLearn(timestamp, box, force = false, reset = false) {
+  if (!OWNER_FEATURES || reidBusy) return;
+  reidBusy = true;
+  (async () => {
+    try {
+      if (!(await reidModelReady())) return;
+      const v = await reidVector(box);
+      if (reset) reidAlbum = [];
+      if (force) {
+        const r = learnIntoVectorAlbum(reidAlbum, v, { newViewAbove: -1, sameViewAbove: 1.01 });
+        reidAlbum = r.album;
+        reidScore = 1;
+        saveReidAlbum();
+        return;
+      }
+      reidScore = vectorAlbumScore(reidAlbum, v);
+      const canAdd = timestamp - lastReidAddAt >= CLOTH_ADD_GAP_MS;
+      const r = learnIntoVectorAlbum(reidAlbum, v,
+        canAdd ? {} : { newViewAbove: REID_ALBUM_DEFAULTS.sameViewAbove });
+      reidAlbum = r.album;
+      if (r.action === "add") { lastReidAddAt = timestamp; saveReidAlbum(); }
+      else if (r.action === "blend" && timestamp - lastClothSaveAt >= 5000) saveReidAlbum();
+    } catch (error) {
+      console.warn("Re-ID learn failed:", error);
+    } finally {
+      reidBusy = false;
+    }
+  })();
+}
+
+/* Re-acquire with Re-ID: score up to 3 person boxes of THIS detection round. */
+function reidSearch(timestamp) {
+  if (reidBusy) return;
+  lastReidSearchAt = timestamp;
+  reidBusy = true;
+  const boxes = lastPersonBoxes.slice(0, REID_MAX_CANDIDATES);
+  (async () => {
+    try {
+      const candidates = [];
+      for (const b of boxes) {
+        candidates.push({ box: b, score: vectorAlbumScore(reidAlbum, await reidVector(b)) });
+      }
+      const best = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
+      if (Number.isFinite(best)) ownerLastScore = best;
+      const agreed = reidAgreement.push(candidates);
+      if (agreed && !followingSomeone() && !ownerAutoPaused) {
+        ownerLastScore = agreed.score;
+        autoSelect(agreed.box, "พบเจ้าของจาก Re-ID");
+      }
+    } catch (error) {
+      console.warn("Re-ID search failed:", error);
+    } finally {
+      reidBusy = false;
+    }
+  })();
+}
+
 function ownerStatusText() {
   if (!OWNER_HOST) return UNVERIFIED_TEXT;
   if (enrolRemaining > 0) return `กำลังลงทะเบียนหน้า… เหลือ ${enrolRemaining}`;
@@ -882,6 +1004,11 @@ function ownerStatusText() {
   else {
     parts.push(`จำเสื้อผ้า ${ownerAlbum.length}/${ALBUM_DEFAULTS.maxViews} มุม`);
     if (followingSomeone() && Number.isFinite(clothScore)) parts.push(`ตรง ${clothScore.toFixed(2)}`);
+  }
+  if (reidReadyCache) {
+    let t = reidAlbum.length ? `Re-ID ${reidAlbum.length}/${REID_ALBUM_DEFAULTS.maxViews}` : "Re-ID ยังไม่มีข้อมูล";
+    if (followingSomeone() && Number.isFinite(reidScore)) t += ` ตรง ${reidScore.toFixed(2)}`;
+    parts.push(t);
   }
   if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
   if (ownerLastEvent) parts.push(ownerLastEvent + score);
@@ -935,6 +1062,10 @@ function ownerAfterPersons(timestamp) {
   if (target && target.state === "TRACKING" && target.matched &&
       timestamp - lastSignatureAt >= SIGNATURE_REFRESH_MS) {
     const alone = lastPersonBoxes.every(b => boxIoU(b, target.box) > 0.9 || boxIoU(b, target.box) < 0.05);
+    if (alone && timestamp - lastReidLearnAt >= REID_LEARN_MS && (reidReadyCache || OWNER_FEATURES)) {
+      lastReidLearnAt = timestamp;
+      reidLearn(timestamp, target.box);
+    }
     if (alone) {
       lastSignatureAt = timestamp;
       const sig = signatureOf(target.box);
@@ -959,6 +1090,16 @@ function ownerAfterPersons(timestamp) {
     return;
   }
   clothScore = NaN;
+  reidScore = NaN;
+
+  // Re-acquire with Re-ID when its model is loaded and it has learned the
+  // owner: it is more reliable than colours, so it decides alone.
+  if (reidReadyCache && reidAlbum.length > 0) {
+    if (!ownerAutoPaused && lastPersonBoxes.length > 0 && timestamp - lastReidSearchAt >= REID_SEARCH_MS) {
+      reidSearch(timestamp);
+    }
+    return;
+  }
 
   // Re-acquire from behind (clothing), only after this session followed the owner.
   if (ownerAutoPaused || ownerAlbum.length === 0 || lastPersonBoxes.length === 0) return;
@@ -1073,6 +1214,9 @@ export function forgetOwner() {
   ownerAlbum = [];
   clothScore = NaN;
   saveClothAlbum();
+  reidAlbum = [];
+  reidScore = NaN;
+  saveReidAlbum();
   enrolRemaining = 0;
   ownerLastScore = NaN;
   ownerLastEvent = "ลบข้อมูลเจ้าของแล้ว";
@@ -1097,6 +1241,8 @@ export function addOwnerClothesView() {
   if (ownerAlbum.length >= ALBUM_DEFAULTS.maxViews) ownerAlbum.splice(1, 1);
   ownerAlbum.push(sig);
   saveClothAlbum();
+  const t = tracker.getTarget();
+  if (t) reidLearn(lastFrameTimestamp, t.box, true);
   ownerLastEvent = `เพิ่มมุมเสื้อผ้าแล้ว (${ownerAlbum.length})`;
   resetOwnerAgreements();
   return { ok: true };
@@ -1116,6 +1262,10 @@ export function rememberOwnerClothes() {
   ownerAlbum = [sig];
   clothScore = 1;
   saveClothAlbum();
+  reidAlbum = [];                 // new outfit / new owner: start the Re-ID album again
+  reidScore = NaN;
+  saveReidAlbum();
+  reidLearn(lastFrameTimestamp, target.box, true);
   ownerLastEvent = "จำเสื้อผ้าใหม่แล้ว";
   ownerLastScore = NaN;
   resetOwnerAgreements();

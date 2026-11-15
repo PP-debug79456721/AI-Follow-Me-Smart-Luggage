@@ -29,7 +29,12 @@
       "input": {
         "name": "data",
         "layout": "NCHW",
-        "shape": [1, 3, 112, 112],
+        "shape": [
+          1,
+          3,
+          112,
+          112
+        ],
         "dtype": "float32",
         "colorOrder": "RGB",
         "pixelRange": "0-255 raw (no normalization by the app)",
@@ -37,7 +42,10 @@
       },
       "output": {
         "name": "fc1",
-        "shape": [1, 128],
+        "shape": [
+          1,
+          128
+        ],
         "dtype": "float32",
         "normalized": false
       }
@@ -52,7 +60,7 @@
       "distribution": "NOT_DISTRIBUTED",
       "license": {
         "status": "NOT_APPLICABLE",
-        "note": "No Re-ID model has been chosen. An OSNet source and its code, weight and dataset licenses must be proposed and reviewed before any download."
+        "note": "Candidate chosen and reviewed 2026-11-15 (see MODEL_METADATA.md 'reid'): Torchreid OSNet x0.25 MSMT17 combineall, code/weights MIT, training data MSMT17 research-only -> will be UNVERIFIED / DEVELOPMENT_ONLY. Stays DISABLED until the owner's checkpoint is converted and size/SHA-256 are recorded here."
       },
       "use": "DISABLED"
     }

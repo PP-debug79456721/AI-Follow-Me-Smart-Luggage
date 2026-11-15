@@ -139,5 +139,39 @@ by the app.
 
 - `integrity: NONE`, `localAvailability: NO_VALID_FILE` (the owner's local file
   was 0 bytes and failed the ONNX check), `use: DISABLED`.
-- The app shows `NO MODEL` for Re-ID. An OSNet source and its code, weight
-  and dataset licenses must be proposed and reviewed before any download.
+- The app shows `NO MODEL` for Re-ID until the file below is converted and
+  the manifest entry is filled in.
+
+### Licence review and choice (2026-11-15)
+
+Proposed: **Torchreid OSNet x0.25, MSMT17 `combineall=True`** (Torchreid
+`docs/MODEL_ZOO.md`, section "MSMT17 (combineall=True) -> Market1501 &
+DukeMTMC-reID", row `osnet_x0_25`, Google Drive file
+`1Kkx2zW89jq_NETu4u42CFZTMVD5Hwm6e`). Reviewed at Torchreid commit
+`f8cd150fdf77e8d9e1ed143b7f308c2c609ded50`.
+
+| Part | Finding |
+|---|---|
+| Code | MIT, Copyright (c) 2018 Kaiyang Zhou (`LICENSE` of KaiyangZhou/deep-person-reid). `tools/osnet_torchreid.py` is that `osnet.py`, vendored unchanged with the notice. |
+| Weights | Published by the same author in the MIT repository's model zoo; no separate weight licence. |
+| Training data | MSMT17 (all splits). Its terms are research / non-commercial. **This blocks commercial use** -> licence `UNVERIFIED`, `use: DEVELOPMENT_ONLY`, like SFace. |
+| Size / speed | 0.2 M parameters, 0.08 GFLOPs, ONNX ~0.9 MB; small enough for the phone later. |
+| Accuracy | Cross-domain (trained on MSMT17, tested elsewhere): Market1501 R1 59.9 %, Duke R1 61.5 % (model zoo). Same-domain numbers are higher but do not apply to our camera. |
+
+Rejected / not chosen:
+
+- Weights trained on **DukeMTMC-reID** (incl. Torchreid "multi-source" and the
+  LibreYOLO OSNet-AIN mirror): the dataset was withdrawn by its authors (privacy).
+- **Market-1501** weights: "research only, do not distribute or use for
+  commercial purpose" (dataset readme); no better than MSMT17 and less varied.
+- **OpenCV Zoo YoutuReID**: Apache-2.0 file, but ~100 MB, 768-D, slow on CPU,
+  training data not stated.
+- Third-party ONNX copies (Hugging Face uploads, GitHub issue attachments):
+  unknown converter and provenance. We convert the author's checkpoint ourselves.
+
+Process: the owner downloads the checkpoint by hand (never by the app), then
+`tools/convert-osnet-to-onnx.py <ckpt> models/person-reid/person-reid.onnx`
+exports ONNX (input `input` [1,3,256,128] float32 RGB, ImageNet mean/std after
+/255; output `embedding` [1,512], not normalised), checks it against PyTorch
+(max |diff| < 1e-3) and prints size + SHA-256 for `manifest.json`. The `.onnx`
+stays git-ignored and NOT_DISTRIBUTED. App config: `js/embedding/reid-model-config.js`.

@@ -241,6 +241,52 @@ export function learnIntoAlbum(album, sig, options = {}) {
 }
 
 // --------------------------------------------------------------------------
+// Re-ID album: several 512-D appearance vectors of the owner (back/front/side)
+// --------------------------------------------------------------------------
+
+export const REID_ALBUM_DEFAULTS = Object.freeze({
+  maxViews: 12,
+  sameViewAbove: 0.90,  // cosine: blend into that view
+  newViewAbove: 0.50,   // below: probably someone else -> not learned
+  rate: 0.1
+});
+
+function unit(v) {
+  let n = 0;
+  for (const x of v) n += x * x;
+  n = Math.sqrt(n);
+  return n > 0 ? Array.from(v, x => x / n) : null;
+}
+
+/* Best cosine of a vector against every view. */
+export function vectorAlbumScore(album, v) {
+  return bestFaceScore(v, album);
+}
+
+/* Same rules as learnIntoAlbum, for embedding vectors (stored unit length). */
+export function learnIntoVectorAlbum(album, v, options = {}) {
+  const o = { ...REID_ALBUM_DEFAULTS, ...options };
+  const views = Array.isArray(album) ? album.slice() : [];
+  const u = v ? unit(v) : null;
+  if (!u) return { album: views, action: "skip", score: NaN };
+  if (views.length === 0) return { album: [u], action: "add", score: NaN };
+
+  let best = NaN, bestIdx = -1;
+  views.forEach((w, i) => {
+    const c = cosine(w, u);
+    if (Number.isFinite(c) && !(c <= best)) { best = c; bestIdx = i; }
+  });
+  if (!Number.isFinite(best) || best < o.newViewAbove) return { album: views, action: "skip", score: best };
+  if (best >= o.sameViewAbove) {
+    views[bestIdx] = unit(views[bestIdx].map((x, i) => (1 - o.rate) * x + o.rate * u[i]));
+    return { album: views, action: "blend", score: best };
+  }
+  if (views.length >= o.maxViews) views.splice(1, 1);
+  views.push(u);
+  return { album: views, action: "add", score: best };
+}
+
+// --------------------------------------------------------------------------
 // Decision over several rounds
 // --------------------------------------------------------------------------
 
@@ -248,6 +294,8 @@ export const RECOGNIZER_DEFAULTS = Object.freeze({
   faceThreshold: 0.363,     // SFace cosine (OpenCV reference value; tune on the real camera)
   faceMargin: 0.05,         // best face must beat the second by this
   clothThreshold: 0.80,     // signature similarity (Bhattacharyya); tune on the real camera
+  reidThreshold: 0.65,      // OSNet cosine; starting value, tune on the real camera
+  reidMargin: 0.05,
   clothMargin: 0.06,        // best person must beat the second by this
   window: 5,                // last N rounds ...
   need: 3,                  // ... of which this many must agree
