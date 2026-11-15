@@ -86,15 +86,23 @@ double lastReport = 0;
 
 void wifiMaintain(double now) {
   const bool up = WiFi.status() == WL_CONNECTED;
-  if (wasUp && !up && kernel) kernel->onTransportClosed(now);   // Wi-Fi lost: stop at once
-  if (!up && now - lastWifiTry >= 2000) {
-    WiFi.disconnect();
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  if (wasUp && !up) {
+    if (kernel) kernel->onTransportClosed(now);                 // Wi-Fi lost: stop at once
+    Serial.println("Wi-Fi lost: motors stopped, reconnecting");
+    lastWifiTry = now;
+  }
+  // The driver reconnects by itself (autoReconnect). Only nudge it every 10 s.
+  // The old code called disconnect()+begin() every 2 s, which aborted each attempt
+  // half-way ("wifi:sta is connecting, cannot set config") so it never got back on.
+  if (!up && now - lastWifiTry >= 10000) {
+    WiFi.reconnect();
     lastWifiTry = now;
   }
   if (up && !serverStarted && wsServer) {
     wsServer->begin();
     serverStarted = true;
+  }
+  if (up && !wasUp) {
     Serial.print("WebSocket server: ws://");
     Serial.print(WiFi.localIP());
     Serial.print(":");
@@ -122,6 +130,7 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);               // PROPOSAL: lower, steadier latency
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   lastWifiTry = nowMs();
 
