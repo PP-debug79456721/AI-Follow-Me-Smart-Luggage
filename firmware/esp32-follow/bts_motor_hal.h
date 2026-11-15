@@ -140,6 +140,8 @@ class BtsMotorHal : public MotorHal {
     if (target_ == Motor::Left) l = inner;
     if (target_ == Motor::Right) r = inner;
     if (target_ == Motor::Stop) l = r = 0;
+    l = clampDuty(l * kLeftGain);              // per-wheel compensation (config.h)
+    r = clampDuty(r * kRightGain);
   }
 
   static float approach(float cur, float target, float step) {

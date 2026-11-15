@@ -35,9 +35,14 @@ constexpr bool kLeftInvert = false;
 constexpr bool kRightInvert = false;
 
 // ---- drive settings (start low, raise in small steps)
-constexpr float kDriveDuty = 0.25f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
+constexpr float kDriveDuty = 0.45f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
 constexpr float kDutyMax = 0.60f;             // hard ceiling, kDriveDuty is clamped to this
 constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty * this (0.30 left the inner wheel stalled)
+// Per-wheel gain: compensates a weaker motor/gearbox. Raise the SLOWER wheel's gain
+// (e.g. 1.10-1.30) until the luggage drives straight on FORWARD. 1.00 = no change.
+// The result is still clamped to kDutyMax.
+constexpr float kLeftGain = 1.00f;
+constexpr float kRightGain = 1.20f;           // bench: right wheel slower even with wheels lifted
 constexpr float kRampPerSecond = 1.0f;        // duty change per second when speeding up (soft start)
 constexpr uint32_t kPwmFreqHz = 5000;
 constexpr uint8_t kPwmBits = 8;
@@ -61,6 +66,8 @@ constexpr double kKernelTickMs = 10;
 
 static_assert(kDriveDuty > 0 && kDriveDuty <= kDutyMax, "kDriveDuty must be in (0, kDutyMax]");
 static_assert(kDutyMax <= 0.8f, "keep a margin below full power");
+static_assert(kLeftGain >= 0.5f && kLeftGain <= 1.5f && kRightGain >= 0.5f && kRightGain <= 1.5f,
+              "wheel gains must be in [0.5, 1.5]");
 static_assert(kTurnInnerFraction >= 0 && kTurnInnerFraction < 1, "inner fraction must be in [0, 1)");
 
 }  // namespace follow
