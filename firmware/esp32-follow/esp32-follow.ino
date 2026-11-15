@@ -187,6 +187,17 @@ void loop() {
     Serial.print(kernel ? motorName(kernel->effectiveMotor()) : "?");
     Serial.print(" interlock=");
     Serial.print(blockReasonName(interlock.reason()));
+    if (kUltrasonicInstalled) {
+      for (int i = 0; i < Interlock::kSensors; i += 1) {
+        Reading r;
+        Serial.print(i == 0 ? " sonar=" : "/");
+        if (!interlock.lastReading(i, r)) Serial.print("none");
+        else if (r.status == EchoStatus::Distance) { Serial.print(r.distanceMm); Serial.print("mm"); }
+        else if (r.status == EchoStatus::Clear) Serial.print("clear");
+        else if (r.status == EchoStatus::NoEcho) Serial.print("NO_ECHO");
+        else Serial.print("n/a");
+      }
+    }
     Serial.print(" relay=");
     Serial.print(hal.relayOn() ? "ON" : "OFF");
     Serial.print(" dutyL=");

@@ -91,6 +91,13 @@ class Interlock {
   bool blocked() const { return reason_ != BlockReason::None; }
   BlockReason reason() const { return reason_; }
 
+  // Diagnostics only (serial status): the last reading of sensor i, if any.
+  bool lastReading(int i, Reading& out) const {
+    if (i < 0 || i >= kSensors || !sensors_[i].has) return false;
+    out = sensors_[i].reading;
+    return true;
+  }
+
  private:
   struct Sensor {
     bool has = false;
