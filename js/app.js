@@ -198,6 +198,10 @@ const session = createEsp32Session({
     linkTimeoutMs: 1200,
     handshakeTimeoutMs: 1200,
     pendingTtlMs: 1200,
+    // After a resync the device keeps the old session for sessionLivenessMs
+    // (1200) and answers BUSY meanwhile. 2000 left too little margin on phone
+    // Wi-Fi and ended in DEVICE BUSY about once a minute.
+    busyMaxMs: 4000,
     ...DEMO_LINK
   }
 });
