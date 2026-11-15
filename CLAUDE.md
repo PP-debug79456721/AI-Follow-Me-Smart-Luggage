@@ -138,7 +138,7 @@ before Upload. Small changes are safer made inside the IDE.
   STOP = duty 0 + EN low at once; movement = relay on, 250 ms settle, EN high, soft-start ramp.
   Relay stays on 5 s after the last movement. LEDC write failure latches everything off.
 - `config.h`: real pins, one EN per side, `kDriveDuty 0.45`, `kDutyMax 0.60` (static_assert),
-  `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.20`, `kUltrasonicInstalled false`.
+  `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.10`, `kUltrasonicInstalled false`.
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`
   can block ~10 s and caused loop stalls, link timeouts and a task-watchdog reset.

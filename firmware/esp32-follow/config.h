@@ -42,7 +42,7 @@ constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty *
 // (e.g. 1.10-1.30) until the luggage drives straight on FORWARD. 1.00 = no change.
 // The result is still clamped to kDutyMax.
 constexpr float kLeftGain = 1.00f;
-constexpr float kRightGain = 1.20f;           // bench: right wheel slower even with wheels lifted
+constexpr float kRightGain = 1.10f;           // bench: right wheel slower even with wheels lifted (1.20 overshot)
 constexpr float kRampPerSecond = 1.0f;        // duty change per second when speeding up (soft start)
 constexpr uint32_t kPwmFreqHz = 5000;
 constexpr uint8_t kPwmBits = 8;
