@@ -135,6 +135,8 @@ export function isCameraLive() {
 // Start / stop
 // --------------------------------------------------
 
+const LITE = new URLSearchParams(location.search).get("lite") === "1";
+
 export async function startCamera() {
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -153,12 +155,13 @@ export async function startCamera() {
         ideal: "environment"
       },
 
+      // ?lite=1 (phones): smaller frames, less work on the main thread.
       width: {
-        ideal: 640
+        ideal: LITE ? 480 : 640
       },
 
       height: {
-        ideal: 480
+        ideal: LITE ? 360 : 480
       },
 
       frameRate: {

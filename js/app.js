@@ -395,6 +395,7 @@ function renderEspLink() {
   else if (status.desired) label = "CONNECTING";
 
   if (DEMO_MODE) label += " · DEMO";
+  if (new URLSearchParams(location.search).get("lite") === "1") label += " · LITE";
   setStatus("espLinkState", mock && status.desired ? `${label} - MOCK, NOT HARDWARE` : label);
   setStatus("espStatus", label);
 

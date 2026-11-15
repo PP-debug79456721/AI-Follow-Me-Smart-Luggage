@@ -154,7 +154,11 @@ const INFERENCE_INTERVAL = 100;
 const PERSON_INTERVAL = 200;
 // Face detection is not used for motion (only for FACE CROP EXPORT and the
 // face boxes), so it runs less often to leave time for person detection.
-const FACE_INTERVAL = 500;
+// ?lite=1 (phones): no face detection at all. On a phone it blocked the main
+// thread long enough to push the ESP32 link RTT above its 300 ms gate (laptop
+// on the same Wi-Fi: 10-30 ms). FACE CROP EXPORT is unavailable in lite mode.
+const LITE_MODE = new URLSearchParams(location.search).get("lite") === "1";
+const FACE_INTERVAL = LITE_MODE ? Infinity : 500;
 let lastFaceInference = 0;
 let personDelegate = null;
 // Measured gap between person detections (ms), shown in the status line.
