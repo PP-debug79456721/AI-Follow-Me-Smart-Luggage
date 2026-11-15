@@ -14,6 +14,18 @@ import {
 // Pure logic with no external imports (same reason as above).
 import { createPersonTracker } from "./person-tracker.js";
 
+// Pure logic: owner face/clothing matching (bench, localhost only).
+import {
+  personForFace,
+  bestFaceScore,
+  boxIoU,
+  colorSignature,
+  signatureSimilarity,
+  blendSignature,
+  createAgreement,
+  RECOGNIZER_DEFAULTS
+} from "./owner-recognizer.js";
+
 // Pure logic: turns the raw selected box into STOP / FORWARD / LEFT / RIGHT.
 import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.js";
 
@@ -185,9 +197,13 @@ function cameraStalled() {
   return lastFrame !== null && performance.now() - lastFrame > FRAME_STALL_MS;
 }
 
-// Face recognition is not part of Phase C. Keep false until a face model
-// with a confirmed license and acceptable size has been approved.
-const LOAD_RECOGNITION_MODELS = false;
+// Owner recognition (bench): ONLY on this computer (localhost / 127.0.0.1),
+// never in lite mode (it needs face detection). The SFace model itself still
+// loads only through model-policy.js, i.e. with ?modelMode=development
+// (DEVELOPMENT_ONLY licence). Clothing re-acquire needs no model.
+const OWNER_HOST = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(location.hostname);
+const OWNER_FEATURES = OWNER_HOST && !LITE_MODE;
+const LOAD_RECOGNITION_MODELS = OWNER_FEATURES;
 
 // --------------------------------------------------
 // Camera-covered hint (for the LOST reason text only)
@@ -738,6 +754,288 @@ export function startOwnerAI() {
 }
 
 // --------------------------------------------------
+// Owner recognition (bench, localhost only)
+// --------------------------------------------------
+//
+// Face (SFace, needs ?modelMode=development) locks on to the enrolled owner
+// and re-acquires them when they face the camera. The clothing colour
+// signature of the followed box re-acquires them from BEHIND. Both only
+// SELECT a box in the tracker; they never send motion commands. Automatic
+// selection happens only while nobody is being followed (NOT_SELECTED / LOST),
+// never while TRACKING or SEARCHING, and never after CLEAR SELECTION until the
+// user taps someone or presses FIND OWNER.
+
+const OWNER_STORE = "owner.face.v1";      // 128-D vectors only, never images
+const ENROL_SAMPLES = 5;
+const FACE_ROUND_MS = 700;                // at most one SFace round per 0.7 s
+const MIN_FACE_PX = 40;                   // smaller faces are skipped
+const SIGNATURE_REFRESH_MS = 500;
+const SIGNATURE_W = 24;
+const SIGNATURE_H = 48;
+
+let ownerFaces = loadOwnerFaces();
+let ownerSignature = null;
+let ownerAutoPaused = false;
+let ownerLastScore = NaN;
+let ownerLastEvent = "";
+let enrolRemaining = 0;
+let faceRoundBusy = false;
+let lastFaceRoundAt = 0;
+let lastSignatureAt = 0;
+let lastPersonBoxes = [];
+let lastPersonAt = 0;
+let faceModule = null;
+
+const faceAgreement = createAgreement({
+  threshold: RECOGNIZER_DEFAULTS.faceThreshold,
+  margin: RECOGNIZER_DEFAULTS.faceMargin,
+  window: RECOGNIZER_DEFAULTS.window,
+  need: RECOGNIZER_DEFAULTS.need,
+  sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
+});
+const clothAgreement = createAgreement({
+  threshold: RECOGNIZER_DEFAULTS.clothThreshold,
+  margin: RECOGNIZER_DEFAULTS.clothMargin,
+  window: RECOGNIZER_DEFAULTS.window,
+  need: RECOGNIZER_DEFAULTS.need,
+  sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
+});
+
+function resetOwnerAgreements() {
+  faceAgreement.reset();
+  clothAgreement.reset();
+}
+
+function loadOwnerFaces() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OWNER_STORE) || "[]");
+    return Array.isArray(raw)
+      ? raw.filter(v => Array.isArray(v) && v.length === 128 && v.every(Number.isFinite))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOwnerFaces() {
+  try { localStorage.setItem(OWNER_STORE, JSON.stringify(ownerFaces)); } catch { /* storage full/blocked */ }
+}
+
+async function getFaceModule() {
+  if (!faceModule) {
+    faceModule = Promise.all([
+      import("./embedding/face-embedding.js"),
+      import("./embedding/owner-embedding.js")
+    ]).then(([face, owner]) => ({ face, owner }));
+  }
+  return faceModule;
+}
+
+async function faceModelReady() {
+  if (!OWNER_FEATURES) return false;
+  try {
+    const { owner } = await getFaceModule();
+    return owner.getEmbeddingModelStatus().face?.state === "SESSION_LOADED";
+  } catch {
+    return false;
+  }
+}
+
+function ownerStatusText() {
+  if (!OWNER_FEATURES) return UNVERIFIED_TEXT;
+  if (enrolRemaining > 0) return `กำลังลงทะเบียนหน้า… เหลือ ${enrolRemaining}`;
+  const score = Number.isFinite(ownerLastScore) ? ` ${ownerLastScore.toFixed(2)}` : "";
+  const parts = [];
+  parts.push(ownerFaces.length ? `หน้าเจ้าของ ${ownerFaces.length} ภาพ` : "ยังไม่ลงทะเบียนหน้า");
+  parts.push(ownerSignature ? "จำเสื้อผ้าแล้ว" : "ยังไม่จำเสื้อผ้า");
+  if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
+  if (ownerLastEvent) parts.push(ownerLastEvent + score);
+  return parts.join(" · ");
+}
+
+function videoCropRGBA(b) {
+  // Small crop of the person box: enough for colour histograms, cheap to read.
+  if (!statsCtx) return null;
+  try {
+    ownerCropCanvas.width = SIGNATURE_W;
+    ownerCropCanvas.height = SIGNATURE_H;
+    ownerCropCtx.drawImage(video, b.originX, b.originY, b.width, b.height, 0, 0, SIGNATURE_W, SIGNATURE_H);
+    return ownerCropCtx.getImageData(0, 0, SIGNATURE_W, SIGNATURE_H).data;
+  } catch {
+    return null;
+  }
+}
+const ownerCropCanvas = document.createElement("canvas");
+const ownerCropCtx = ownerCropCanvas.getContext("2d", { willReadFrequently: true });
+
+function signatureOf(b) {
+  const px = videoCropRGBA(b);
+  return px ? colorSignature(px, SIGNATURE_W, SIGNATURE_H) : null;
+}
+
+function autoSelect(b, how) {
+  const c = { x: b.originX + b.width / 2, y: b.originY + b.height / 2 };
+  const result = tracker.selectAt(c.x, c.y, lastFrameTimestamp);
+  if (result.ok) {
+    ownerLastEvent = how;
+    resetOwnerAgreements();
+    notifyTracking(true);
+  }
+}
+
+function followingSomeone() {
+  const state = tracker.getSnapshot().state;
+  return state === "TRACKING" || state === "SEARCHING";
+}
+
+/* Called after every person detection round. */
+function ownerAfterPersons(timestamp) {
+
+  if (!OWNER_HOST || lastPersonAt !== timestamp) return;
+
+  const target = tracker.getTarget();
+
+  // Keep the clothing signature of the followed box up to date, but only
+  // while it is matched and does not overlap anybody else.
+  if (target && target.state === "TRACKING" && target.matched &&
+      timestamp - lastSignatureAt >= SIGNATURE_REFRESH_MS) {
+    const alone = lastPersonBoxes.every(b => boxIoU(b, target.box) > 0.9 || boxIoU(b, target.box) < 0.05);
+    if (alone) {
+      lastSignatureAt = timestamp;
+      const sig = signatureOf(target.box);
+      if (sig) ownerSignature = blendSignature(ownerSignature, sig, ownerSignature ? 0.1 : 1);
+    }
+  }
+
+  if (followingSomeone()) {
+    resetOwnerAgreements();
+    return;
+  }
+
+  // Re-acquire from behind (clothing), only after this session followed the owner.
+  if (ownerAutoPaused || !ownerSignature || lastPersonBoxes.length === 0) return;
+
+  const candidates = lastPersonBoxes.slice(0, 4).map(b => ({
+    box: b,
+    score: signatureSimilarity(ownerSignature, signatureOf(b))
+  }));
+  const agreed = clothAgreement.push(candidates);
+  if (agreed) {
+    ownerLastScore = agreed.score;
+    autoSelect(agreed.box, "พบเจ้าของจากเสื้อผ้า");
+  }
+}
+
+/* Called right after face detection, with the faces of THIS frame. */
+function ownerAfterFaces(faceList, timestamp, width, height) {
+
+  if (!OWNER_FEATURES || faceRoundBusy) return;
+
+  const enrolling = enrolRemaining > 0;
+  const lookingForOwner = !enrolling && !ownerAutoPaused && ownerFaces.length > 0 && !followingSomeone();
+  if (!enrolling && !lookingForOwner) return;
+  if (timestamp - lastFaceRoundAt < FACE_ROUND_MS) return;
+  if (timestamp - lastPersonAt > 400) return;   // person boxes too old for this frame
+
+  const faces = faceList
+    .filter(f => f.boundingBox && f.boundingBox.height >= MIN_FACE_PX &&
+                 Array.isArray(f.keypoints) && f.keypoints.length >= 4)
+    .map(f => ({ face: f, person: personForFace(f.boundingBox, lastPersonBoxes) }))
+    .filter(x => x.person >= 0);
+
+  let work;
+  if (enrolling) {
+    // Only the face inside the box being followed.
+    const target = tracker.getTarget();
+    if (!target || !target.matched) return;
+    work = faces.filter(x => boxIoU(lastPersonBoxes[x.person], target.box) > 0.5).slice(0, 1);
+  } else {
+    work = faces
+      .sort((a, b) => b.face.boundingBox.height - a.face.boundingBox.height)
+      .slice(0, 2);
+  }
+  if (work.length === 0) return;
+
+  lastFaceRoundAt = timestamp;
+  faceRoundBusy = true;
+
+  // Keypoints and pixels come from the same frame: the aligned crop is made
+  // synchronously inside generateFaceEmbedding before any await.
+  (async () => {
+    try {
+      if (!(await faceModelReady())) {
+        if (enrolling) { enrolRemaining = 0; ownerLastEvent = "โมเดลจดจำหน้ายังไม่พร้อม"; }
+        return;
+      }
+      const { face } = await getFaceModule();
+      const results = [];
+      for (const x of work) {
+        const box = {
+          ...x.face.boundingBox,
+          keypoints: mediapipeKeypointsToPixels(x.face.keypoints, width, height)
+        };
+        const vector = await face.generateFaceEmbedding(video, box);
+        results.push({ person: lastPersonBoxes[x.person], vector: Array.from(vector) });
+      }
+
+      if (enrolling) {
+        ownerFaces.push(results[0].vector);
+        if (ownerFaces.length > 20) ownerFaces = ownerFaces.slice(-20);
+        saveOwnerFaces();
+        enrolRemaining -= 1;
+        ownerLastEvent = enrolRemaining > 0 ? "" : "ลงทะเบียนหน้าแล้ว";
+        return;
+      }
+
+      const candidates = results.map(r => ({ box: r.person, score: bestFaceScore(r.vector, ownerFaces) }));
+      ownerLastScore = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
+      const agreed = faceAgreement.push(candidates);
+      if (agreed && !followingSomeone() && !ownerAutoPaused) {
+        ownerLastScore = agreed.score;
+        autoSelect(agreed.box, "พบเจ้าของจากใบหน้า");
+      }
+    } catch (error) {
+      console.warn("Owner face round failed:", error);
+      if (enrolling) { enrolRemaining = 0; ownerLastEvent = "ลงทะเบียนไม่สำเร็จ"; }
+    } finally {
+      faceRoundBusy = false;
+    }
+  })();
+}
+
+/* UI: capture ENROL_SAMPLES faces of the person currently followed. */
+export function startOwnerEnrolment() {
+  if (!OWNER_FEATURES) return { ok: false, reason: "NOT_LOCALHOST" };
+  const target = tracker.getTarget();
+  if (!target || target.state !== "TRACKING") return { ok: false, reason: "SELECT_OWNER_FIRST" };
+  enrolRemaining = ENROL_SAMPLES;
+  ownerLastEvent = "";
+  return { ok: true };
+}
+
+/* UI: forget the enrolled face and the clothing signature. */
+export function forgetOwner() {
+  ownerFaces = [];
+  saveOwnerFaces();
+  ownerSignature = null;
+  enrolRemaining = 0;
+  ownerLastScore = NaN;
+  ownerLastEvent = "ลบข้อมูลเจ้าของแล้ว";
+  resetOwnerAgreements();
+}
+
+/* UI: allow automatic re-acquire again after CLEAR SELECTION. */
+export function findOwner() {
+  ownerAutoPaused = false;
+  ownerLastEvent = "กำลังหาเจ้าของ";
+  resetOwnerAgreements();
+}
+
+export function ownerFeaturesEnabled() {
+  return OWNER_FEATURES;
+}
+
+// --------------------------------------------------
 // Person selection (tap to follow a box)
 // --------------------------------------------------
 
@@ -862,6 +1160,14 @@ export function selectPersonAt(x, y) {
 
   const result = tracker.selectAt(x, y, lastFrameTimestamp);
 
+  // A manual pick re-enables automatic owner re-acquire, and the clothing
+  // signature is taken again from this person.
+  if (result.ok) {
+    ownerAutoPaused = false;
+    ownerSignature = null;
+    resetOwnerAgreements();
+  }
+
   // The highlight appears on the next processed frame (<= 250 ms).
   notifyTracking();
 
@@ -871,6 +1177,11 @@ export function selectPersonAt(x, y) {
 export function clearPersonSelection() {
 
   tracker.clearSelection(lastFrameTimestamp);
+
+  // CLEAR SELECTION means "follow nobody": no automatic re-acquire until the
+  // user taps someone again or presses FIND OWNER.
+  ownerAutoPaused = true;
+  resetOwnerAgreements();
 
   notifyTracking();
 }
@@ -895,6 +1206,8 @@ export function stopOwnerAI() {
 
   faceStatus.textContent = "NOT RUNNING";
   personStatus.textContent = "NOT RUNNING";
+  enrolRemaining = 0;
+  resetOwnerAgreements();
   ownerStatus.textContent = UNVERIFIED_TEXT;
 }
 
@@ -1089,6 +1402,8 @@ function processFrame(timestamp) {
       faceStatus.textContent =
         `${faceList.length} FACE(S)`;
 
+      ownerAfterFaces(faceList, timestamp, width, height);
+
       lastFaces = faceList
         .filter(face => face.boundingBox)
         .map(face => ({
@@ -1137,6 +1452,8 @@ function processFrame(timestamp) {
           : false;
 
       tracker.update(persons, timestamp, width, height, { blocked });
+      lastPersonBoxes = persons.map(p => p.box);
+      lastPersonAt = timestamp;
 
       personStatus.textContent =
         `${persons.length} PERSON(S)` +
@@ -1145,11 +1462,11 @@ function processFrame(timestamp) {
     }
 
     tracker.tick(timestamp);
+    ownerAfterPersons(timestamp, width, height);
     renderOverlay(timestamp);
     notifyTracking();
 
-    // Detection is not identity verification.
-    ownerStatus.textContent = UNVERIFIED_TEXT;
+    ownerStatus.textContent = ownerStatusText();
 
   } catch (error) {
 

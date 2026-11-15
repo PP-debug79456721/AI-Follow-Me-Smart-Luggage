@@ -4,7 +4,11 @@ import {
   stopOwnerAI,
   setMotionDecisionListener,
   getSelectedTarget,
-  STOP_HEIGHT_OVERRIDE
+  STOP_HEIGHT_OVERRIDE,
+  ownerFeaturesEnabled,
+  startOwnerEnrolment,
+  findOwner,
+  forgetOwner
 } from "./ai-owner.js";
 import { createEsp32Session } from "./esp32-session.js";
 import { createMotionSmoother } from "./motion-smoother.js";
@@ -426,6 +430,21 @@ function renderEspLink() {
 
 setInterval(() => { renderEspLink(); updateWakeLock(); }, 250);
 renderEspLink();
+
+// Owner recognition controls (bench, localhost only; see ai-owner.js).
+if (ownerFeaturesEnabled()) {
+  document.getElementById("ownerControls").hidden = false;
+  document.getElementById("ownerHint").hidden = false;
+  document.getElementById("ownerEnrolBtn").addEventListener("click", () => {
+    const r = startOwnerEnrolment();
+    if (!r.ok) setStatus("ownerStatus", r.reason === "SELECT_OWNER_FIRST"
+      ? "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)" : "ใช้ได้เฉพาะบนคอม (localhost)");
+  });
+  document.getElementById("ownerFindBtn").addEventListener("click", () => findOwner());
+  document.getElementById("ownerForgetBtn").addEventListener("click", () => {
+    if (confirm("ลบหน้าและเสื้อผ้าของเจ้าของที่จำไว้?")) forgetOwner();
+  });
+}
 
 initLegacyOwnerData();
 initFaceCropExport();
