@@ -140,6 +140,10 @@ void setup() {
   ProtocolConfig protocolConfig;
   protocolConfig.movementWatchdogMs = 1200;
   protocolConfig.sessionLivenessMs = 1200;
+  // Upper limits only: the page decides how old a detection may be. Normal mode
+  // still sends at most 450 ms / 700 ms; DEMO mode (?mode=demo) up to 1200 / 1500.
+  protocolConfig.ageClaimMaxMs = 1200;
+  protocolConfig.evidenceMaxMs = 1500;
   protocol = new Protocol(&rng, &sink, nullptr, protocolConfig);   // BOOT_LATCHED
   kernel = new SafetyKernel(*protocol, hal, interlock);
   wsServer = new WsServer(kWsPort, kWsPath, app);

@@ -176,6 +176,11 @@ video.addEventListener("error", () => {
 
 let mockNetwork = null;
 
+const DEMO_MODE = new URLSearchParams(location.search).get("mode") === "demo";
+// Detection evidence may be up to 1.2 s old and a command may run up to 1.5 s
+// (normal: 0.45 s / 0.7 s). Only used in DEMO mode.
+const DEMO_LINK = DEMO_MODE ? { ageClaimMaxMs: 1200, evidenceMaxMs: 1500 } : {};
+
 const session = createEsp32Session({
   createSocket(url) {
     if (url.startsWith("mock://")) {
@@ -192,13 +197,17 @@ const session = createEsp32Session({
   linkOptions: {
     linkTimeoutMs: 1200,
     handshakeTimeoutMs: 1200,
-    pendingTtlMs: 1200
+    pendingTtlMs: 1200,
+    ...DEMO_LINK
   }
 });
 
 // Removes noise STOPs (one missed detection, standing right at the "close"
 // threshold, flipping at the edge of the turn band). See motion-smoother.js.
-const smoother = createMotionSmoother();
+// DEMO mode (open the page with ?mode=demo): a detector miss is bridged for up
+// to 1 s instead of 0.4 s. Needs the firmware's ProtocolConfig ageClaimMaxMs
+// >= 1200 and evidenceMaxMs >= 1500 (esp32-follow.ino), see DEMO_LINK below.
+const smoother = createMotionSmoother(DEMO_MODE ? { holdMs: 1000 } : {});
 
 setMotionDecisionListener(decision => {
 
@@ -274,6 +283,7 @@ function renderEspLink() {
   else if (link.connected) label = status.follow ? "FOLLOWING ENABLED" : "CONNECTED (STOP)";
   else if (status.desired) label = "CONNECTING";
 
+  if (DEMO_MODE) label += " · DEMO";
   setStatus("espLinkState", mock && status.desired ? `${label} - MOCK, NOT HARDWARE` : label);
   setStatus("espStatus", label);
 
