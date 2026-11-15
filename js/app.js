@@ -6,6 +6,7 @@ import {
   getSelectedTarget
 } from "./ai-owner.js";
 import { createEsp32Session } from "./esp32-session.js";
+import { createMotionSmoother } from "./motion-smoother.js";
 import { createMockDeviceNetwork } from "./mock-socket.js";
 import { initLegacyOwnerData }
   from "./legacy-owner-data.js";
@@ -70,6 +71,7 @@ function resetToStopped({ cameraStatus, systemStatus }) {
   stopCamera();
   stopOwnerAI();
   setFaceCropEnabled(false);
+  smoother.reset();
   session.setDecision("STOP", null);
 
   setStatus("fpsValue", "0 FPS");
@@ -194,15 +196,24 @@ const session = createEsp32Session({
   }
 });
 
-setMotionDecisionListener(decision => {
+// Removes noise STOPs (one missed detection, standing right at the "close"
+// threshold, flipping at the edge of the turn band). See motion-smoother.js.
+const smoother = createMotionSmoother();
 
-  setStatus("motorStatus", decision.command);
+setMotionDecisionListener(decision => {
 
   // The ORIGINAL detection time of the target behind this decision.
   const target = getSelectedTarget();
 
   try {
-    session.setDecision(decision.command, target ? target.lastSeenMs : null);
+    const smooth = smoother.apply(
+      decision,
+      target ? target.state : null,
+      target ? target.lastSeenMs : null,
+      target ? target.now : null
+    );
+    setStatus("motorStatus", smooth.command);
+    session.setDecision(smooth.command, smooth.detectionTime);
   } catch (error) {
     console.error("ESP32 session failed; forcing STOP:", error);
     try { session.setDecision("STOP", null); } catch { /* nothing more to do */ }
