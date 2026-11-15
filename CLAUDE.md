@@ -198,8 +198,9 @@ before Upload. Small changes are safer made inside the IDE.
   **Re-ID (OSNet x0.25 MSMT17, chosen 2026-11-15, see models/MODEL_METADATA.md "reid")**: code ready
   (`reid-model-config.js`, Re-ID album `owner.reid.v1` up to 12 x 512-D, learn while TRACKING alone 1/s,
   re-acquire every 0.5 s on <= 3 boxes, cosine >= 0.65 margin 0.05, 3 of 5; when loaded it decides instead
-  of clothing). Loads only with ?modelMode=development once the owner's checkpoint is converted with
-  `tools/convert-osnet-to-onnx.py` and manifest `reid` gets size/SHA-256 + DEVELOPMENT_ONLY.
+  of clothing). Converted 2026-11-15 (`tools/convert-osnet-to-onnx.py`, 891,011 bytes, SHA-256 53e392a3...);
+  manifest `reid` is DEVELOPMENT_ONLY, file only in `C:\follow-app\models\person-reid\person-reid.onnx`.
+  Loads only with `http://localhost:8000/?modelMode=development`. Not yet tested on the real camera.
   Auto-select only while NOT_SELECTED/LOST, never after CLEAR SELECTION until a tap or
   FIND OWNER; ambiguous -> nobody. Thresholds are starting values, not tuned on the real camera.
   tests/e2e/phase-c expects the face model row "OFF" on localhost and will need updating.

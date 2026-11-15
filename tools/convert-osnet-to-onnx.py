@@ -30,7 +30,7 @@ from osnet_torchreid import osnet_x0_25  # noqa: E402
 def load_feature_weights(model, ckpt):
     """Same as torchreid.utils.load_pretrained_weights: keep layers whose
     name and shape match (the classifier of another dataset is dropped)."""
-    raw = torch.load(ckpt, map_location="cpu", weights_only=False)
+    raw = torch.load(ckpt, map_location="cpu", weights_only=True)  # never unpickle code
     state = raw.get("state_dict", raw) if isinstance(raw, dict) else raw
     own = model.state_dict()
     kept, dropped = {}, []

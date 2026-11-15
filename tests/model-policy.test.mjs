@@ -120,11 +120,15 @@ test("a well-formed but different hash / size is passed through unchanged, so th
   assert.equal(d.sizeBytes, SFACE_SIZE + 1);
 });
 
-test("repo manifest: Re-ID is disabled (NO_MODEL) in both modes", () => {
-  for (const mode of ["production", "development"]) {
-    const d = decideModelLoad(REPO_MANIFEST, "reid", mode);
-    assert.deepEqual([d.allowed, d.state], [false, "NO_MODEL"]);
-  }
+test("repo manifest: Re-ID (OSNet, DEVELOPMENT_ONLY) loads only in development mode", () => {
+  const prod = decideModelLoad(REPO_MANIFEST, "reid", "production");
+  assert.deepEqual([prod.allowed, prod.state, prod.reason],
+    [false, "BLOCKED", BLOCK_REASON.NOT_APPROVED_FOR_PRODUCTION]);
+  const dev = decideModelLoad(REPO_MANIFEST, "reid", "development");
+  assert.equal(dev.allowed, true);
+  assert.equal(dev.file, "models/person-reid/person-reid.onnx");
+  assert.equal(dev.sizeBytes, 891011);
+  assert.equal(dev.license, "UNVERIFIED");
 });
 
 test("repo manifest: no field uses the old overloaded value AVAILABLE", () => {

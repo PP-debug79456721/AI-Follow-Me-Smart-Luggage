@@ -137,10 +137,12 @@ by the app.
 
 ## reid: models/person-reid/person-reid.onnx
 
-- `integrity: NONE`, `localAvailability: NO_VALID_FILE` (the owner's local file
-  was 0 bytes and failed the ONNX check), `use: DISABLED`.
-- The app shows `NO MODEL` for Re-ID until the file below is converted and
-  the manifest entry is filled in.
+- 2026-11-15: converted from the owner's checkpoint (see manifest
+  `integrityEvidence`): 891,011 bytes, SHA-256
+  `53e392a39f52fe85b8bf81bce799b81a344e0153b26d8d2dbd19e370e5909b66`,
+  `integrity: VERIFIED`, `use: DEVELOPMENT_ONLY`, licence `UNVERIFIED`.
+  Loads only with `?modelMode=development` on localhost. Not verified on the
+  real camera yet.
 
 ### Licence review and choice (2026-11-15)
 
