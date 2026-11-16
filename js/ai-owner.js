@@ -681,7 +681,7 @@ async function loadDetectors() {
           delegate
         },
         runningMode: "VIDEO",
-        scoreThreshold: 0.5,
+        scoreThreshold: PERSON_SCORE_THRESHOLD,
         maxResults: 10
       }
     ),
@@ -1703,13 +1703,21 @@ function processFrame(timestamp) {
           : false;
 
       tracker.update(persons, timestamp, width, height, { blocked });
+
+      const missTarget = tracker.getTarget();
+      if (missTarget && !missTarget.matched) selectedMissTimes.push(timestamp);
+      while (selectedMissTimes.length && timestamp - selectedMissTimes[0] > MISS_WINDOW_MS) {
+        selectedMissTimes.shift();
+      }
+
       lastPersonBoxes = persons.map(p => p.box);
       lastPersonAt = timestamp;
 
       personStatus.textContent =
         `${persons.length} PERSON(S)` +
         (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
-        (personDelegate ? ` · ${personDelegate}` : "");
+        (personDelegate ? ` · ${personDelegate}` : "") +
+        (tracker.getSnapshot().selectedId !== null ? ` · MISS ${selectedMissTimes.length}/60s` : "");
     }
 
     tracker.tick(timestamp);
