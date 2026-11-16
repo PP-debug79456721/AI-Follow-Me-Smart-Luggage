@@ -176,6 +176,14 @@ const PERSON_INTERVAL = 200;
 // on the same Wi-Fi: 10-30 ms). FACE CROP EXPORT is unavailable in lite mode.
 const LITE_MODE = new URLSearchParams(location.search).get("lite") === "1";
 const FACE_INTERVAL = LITE_MODE ? Infinity : 500;
+
+// Minimum detector score for a person box. The bench camera (low angle, backlit)
+// often scores the owner 0.50-0.66, so 0.5 dropped boxes and the tracker went SEARCHING.
+const PERSON_SCORE_THRESHOLD = 0.35;
+
+// Detection cycles in the last 60 s where the selected box was not matched (diagnostic only).
+const MISS_WINDOW_MS = 60000;
+let selectedMissTimes = [];
 let lastFaceInference = 0;
 let personDelegate = null;
 // Measured gap between person detections (ms), shown in the status line.
