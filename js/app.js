@@ -14,6 +14,7 @@ import {
   forgetOwner
 } from "./ai-owner.js";
 import { createEsp32Session } from "./esp32-session.js";
+import { LITE_MODE } from "./lite-mode.js";
 import { createMotionSmoother } from "./motion-smoother.js";
 import { createMockDeviceNetwork } from "./mock-socket.js";
 import { initLegacyOwnerData }
@@ -410,7 +411,7 @@ function renderEspLink() {
   else if (status.desired) label = "CONNECTING";
 
   if (DEMO_MODE) label += " · DEMO";
-  if (new URLSearchParams(location.search).get("lite") === "1") label += " · LITE";
+  if (LITE_MODE) label += " · LITE";
   if (STOP_HEIGHT_OVERRIDE) label += ` · STOP ${Math.round(STOP_HEIGHT_OVERRIDE * 100)}%`;
   setStatus("espLinkState", mock && status.desired ? `${label} - MOCK, NOT HARDWARE` : label);
   setStatus("espStatus", label);

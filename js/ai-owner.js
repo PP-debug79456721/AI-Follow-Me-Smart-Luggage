@@ -37,6 +37,7 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
+import { LITE_MODE } from "./lite-mode.js";
 
 const MEDIAPIPE_VERSION = "0.10.35";
 
@@ -174,16 +175,29 @@ const PERSON_INTERVAL = 200;
 // ?lite=1 (phones): no face detection at all. On a phone it blocked the main
 // thread long enough to push the ESP32 link RTT above its 300 ms gate (laptop
 // on the same Wi-Fi: 10-30 ms). FACE CROP EXPORT is unavailable in lite mode.
-const LITE_MODE = new URLSearchParams(location.search).get("lite") === "1";
 const FACE_INTERVAL = LITE_MODE ? Infinity : 500;
 
 // Minimum detector score for a person box. The bench camera (low angle, backlit)
 // often scores the owner 0.50-0.66, so 0.5 dropped boxes and the tracker went SEARCHING.
 const PERSON_SCORE_THRESHOLD = 0.35;
 
+function inferenceStats() {
+  let sum = 0;
+  let max = 0;
+  for (const sample of inferenceSamples) {
+    sum += sample.ms;
+    if (sample.ms > max) max = sample.ms;
+  }
+  return `${Math.round(sum / inferenceSamples.length)}/${Math.round(max)} ms`;
+}
+
 // Detection cycles in the last 60 s where the selected box was not matched (diagnostic only).
 const MISS_WINDOW_MS = 60000;
 let selectedMissTimes = [];
+
+// Time spent inside personDetector.detectForVideo in the last 60 s (diagnostic only):
+// tells how heavy the detector is on this device (a phone vs the laptop).
+let inferenceSamples = [];
 let lastFaceInference = 0;
 let personDelegate = null;
 // Measured gap between person detections (ms), shown in the status line.
@@ -1682,10 +1696,17 @@ function processFrame(timestamp) {
       if (lastPersonInference > 0) personGapMs = timestamp - lastPersonInference;
       lastPersonInference = timestamp;
 
+      const inferenceStart = performance.now();
+
       const people = personDetector.detectForVideo(
         video,
         timestamp
       );
+
+      inferenceSamples.push({ at: timestamp, ms: performance.now() - inferenceStart });
+      while (inferenceSamples.length && timestamp - inferenceSamples[0].at > MISS_WINDOW_MS) {
+        inferenceSamples.shift();
+      }
 
       const persons = [];
 
@@ -1725,6 +1746,7 @@ function processFrame(timestamp) {
         `${persons.length} PERSON(S)` +
         (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
         (personDelegate ? ` · ${personDelegate}` : "") +
+        (inferenceSamples.length ? ` · INF ${inferenceStats()}` : "") +
         (tracker.getSnapshot().selectedId !== null ? ` · MISS ${selectedMissTimes.length}/60s` : "");
     }
 

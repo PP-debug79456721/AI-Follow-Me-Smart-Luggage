@@ -1,3 +1,5 @@
+import { LITE_MODE as LITE } from "./lite-mode.js";
+
 let cameraStream = null;
 
 const video = document.getElementById("camera");
@@ -135,8 +137,6 @@ export function isCameraLive() {
 // Start / stop
 // --------------------------------------------------
 
-const LITE = new URLSearchParams(location.search).get("lite") === "1";
-
 export async function startCamera() {
 
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -157,16 +157,16 @@ export async function startCamera() {
 
       // ?lite=1 (phones): smaller frames, less work on the main thread.
       width: {
-        ideal: LITE ? 480 : 640
+        ideal: LITE ? 320 : 640
       },
 
       height: {
-        ideal: LITE ? 360 : 480
+        ideal: LITE ? 240 : 480
       },
 
       frameRate: {
-        ideal: 15,
-        max: 20
+        ideal: LITE ? 12 : 15,
+        max: LITE ? 15 : 20
       }
     }
   });
