@@ -37,7 +37,7 @@ constexpr bool kLeftInvert = false;
 constexpr bool kRightInvert = false;
 
 // ---- drive settings (start low, raise in small steps)
-constexpr float kDriveDuty = 0.70f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
+constexpr float kDriveDuty = 0.60f;           // outer-wheel duty for FORWARD/LEFT/RIGHT (0..1)
 constexpr float kDutyMax = 0.80f;             // hard ceiling, kDriveDuty is clamped to this
 constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty * this (0.30 left the inner wheel stalled)
 // Per-wheel gain: compensates a weaker motor/gearbox. Raise the SLOWER wheel's gain

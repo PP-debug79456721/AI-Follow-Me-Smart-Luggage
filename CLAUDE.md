@@ -151,7 +151,7 @@ before Upload. Small changes are safer made inside the IDE.
 - `bts_motor_hal.h` (new): the only pin writer for motors, called only by `SafetyKernel`.
   STOP = duty 0 + EN low at once; movement = relay on, 250 ms settle, EN high, soft-start ramp.
   Relay stays on 5 s after the last movement. LEDC write failure latches everything off.
-- `config.h`: real pins, one EN per side, `kDriveDuty 0.70`, `kDutyMax 0.80` (static_assert),
+- `config.h`: real pins, one EN per side, `kDriveDuty 0.60` (<= 0.60 until the 10 A fuse is fitted), `kDutyMax 0.80` (static_assert),
   `kRampPerSecond 2.5`, `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.10`,
   `kUltrasonicInstalled true` (2x AB043 = HC-SR04, trig 18/19, echo 34/35 via 1k/2k), `kStopDistanceMm 500`.
   Serial adds `sonar=<mm|clear|NO_ECHO>/<...>`. NO_ECHO blocks motion (fail-safe).
