@@ -55,7 +55,7 @@ constexpr uint32_t kRelayHoldMs = 5000;       // keep relay on this long after t
 // false: NO obstacle check (sensors not wired yet). The interlock is fed "clear"
 //        readings so only STOP/ESTOP/link-loss/timeouts stop the motors.
 // true:  two HC-SR04 on kSonar; anything closer than kStopDistanceMm stops the motors.
-constexpr bool kUltrasonicInstalled = true;
+constexpr bool kUltrasonicInstalled = false;   // sensors NOT wired yet: true with no sensor => NO_ECHO blocks all motion
 constexpr SonarPins kSonar[2] = {{18, 34}, {19, 35}};   // PROPOSAL, UNVERIFIED
 constexpr uint32_t kStopDistanceMm = 500;
 

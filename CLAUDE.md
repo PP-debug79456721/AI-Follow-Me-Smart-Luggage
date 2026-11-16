@@ -22,7 +22,7 @@ Language: the owner works in **Thai**. Answer in Thai unless asked otherwise.
 | Phone camera (Android Chrome) | Working via chrome://flags (see 4) |
 | Choosing the owner | Tap the person's box; on localhost also automatic (see 6, owner recognition) |
 | **Face recognition of the owner** | **First version, localhost only, NOT yet tested on the real camera** |
-| Obstacle sensors (2x AB043 / HC-SR04) | Enabled in firmware (stop at 500 mm); wiring being done |
+| Obstacle sensors (2x AB043 / HC-SR04) | NOT wired yet; `kUltrasonicInstalled=false` (true without sensors = NO_ECHO blocks all motion) |
 | E-STOP status to the ESP32 (GPIO23) | Not wired (see 3) |
 | Right wheel slower than left, even lifted | Compensated in software (`kRightGain`); hardware cause not found |
 
