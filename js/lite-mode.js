@@ -18,6 +18,15 @@ export function detectLiteMode(search = "", nav = {}) {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(nav.userAgent || "");
 }
 
+/*
+ * Person detection period. Lite mode (phones) detects less often while FOLLOW is off: nothing
+ * moves, so the phone does less work and stays cooler. With FOLLOW on, the normal period is
+ * always used (the ESP32 link needs fresh detections).
+ */
+export function personIntervalFor({ lite, following, normalMs, idleMs }) {
+  return lite && !following ? idleMs : normalMs;
+}
+
 export const LITE_MODE = detectLiteMode(
   typeof location !== "undefined" ? location.search : "",
   typeof navigator !== "undefined" ? navigator : {}

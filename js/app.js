@@ -2,6 +2,7 @@ import {
   initOwnerAI,
   startOwnerAI,
   stopOwnerAI,
+  setFollowActive,
   setMotionDecisionListener,
   getSelectedTarget,
   STOP_HEIGHT_OVERRIDE,
@@ -402,6 +403,8 @@ function renderEspLink() {
   const status = session.getStatus();
   const link = status.link;
   const mock = typeof status.url === "string" && status.url.startsWith("mock://");
+
+  setFollowActive(status.follow);
 
   let label = "DISCONNECTED";
   if (status.emergency) label = "ESTOP LATCHED";

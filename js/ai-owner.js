@@ -37,7 +37,7 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
-import { LITE_MODE } from "./lite-mode.js";
+import { LITE_MODE, personIntervalFor } from "./lite-mode.js";
 
 const MEDIAPIPE_VERSION = "0.10.35";
 
@@ -170,6 +170,25 @@ let lastPersonInference = 0;
 // healthy target at about 200-350 ms.
 const INFERENCE_INTERVAL = 100;
 const PERSON_INTERVAL = 200;
+
+// Phones (lite mode) heat up: on a mid-range phone INF grew from ~180 ms to ~270 ms after 10 minutes.
+// While the luggage is NOT following (waiting, choosing the owner) there is no need to detect 5 times
+// a second, so lite mode detects every 500 ms until FOLLOW is switched on (setFollowActive).
+const PERSON_INTERVAL_IDLE = 500;
+let followActive = false;
+
+// Lite mode redraws the overlay at most this often (the boxes glide, 15 fps is enough).
+const OVERLAY_INTERVAL_LITE = 66;
+let lastOverlayAt = 0;
+
+// looksBlocked() reads pixels back from the GPU; its result only explains a LOST target, so it runs
+// at most once per second.
+const BLOCKED_CHECK_INTERVAL = 1000;
+let blockedCheckAt = -Infinity;
+let blockedCheckValue = false;
+
+// Average detector time above this = the phone is slow or hot (shown on the detection card).
+const SLOW_INFERENCE_AVG_MS = 250;
 // Face detection is not used for motion (only for FACE CROP EXPORT and the
 // face boxes), so it runs less often to leave time for person detection.
 // ?lite=1 (phones): no face detection at all. On a phone it blocked the main
@@ -181,14 +200,45 @@ const FACE_INTERVAL = LITE_MODE ? Infinity : 500;
 // often scores the owner 0.50-0.66, so 0.5 dropped boxes and the tracker went SEARCHING.
 const PERSON_SCORE_THRESHOLD = 0.35;
 
-function inferenceStats() {
+function inferenceSummary() {
   let sum = 0;
   let max = 0;
   for (const sample of inferenceSamples) {
     sum += sample.ms;
     if (sample.ms > max) max = sample.ms;
   }
-  return `${Math.round(sum / inferenceSamples.length)}/${Math.round(max)} ms`;
+  return { avg: sum / inferenceSamples.length, max };
+}
+
+function inferenceStats() {
+  const summary = inferenceSummary();
+  return `${Math.round(summary.avg)}/${Math.round(summary.max)} ms`;
+}
+
+function inferenceIsSlow() {
+  return inferenceSamples.length >= 10 && inferenceSummary().avg > SLOW_INFERENCE_AVG_MS;
+}
+
+function personIntervalMs() {
+  return personIntervalFor({
+    lite: LITE_MODE,
+    following: followActive,
+    normalMs: PERSON_INTERVAL,
+    idleMs: PERSON_INTERVAL_IDLE
+  });
+}
+
+function looksBlockedThrottled(now) {
+  if (now - blockedCheckAt >= BLOCKED_CHECK_INTERVAL) {
+    blockedCheckAt = now;
+    blockedCheckValue = looksBlocked();
+  }
+  return blockedCheckValue;
+}
+
+// app.js tells the detector whether FOLLOW is on (full rate) or off (lite mode slows down).
+export function setFollowActive(active) {
+  followActive = Boolean(active);
 }
 
 // Detection cycles in the last 60 s where the selected box was not matched (diagnostic only).
@@ -1632,7 +1682,10 @@ function processFrame(timestamp) {
     // No detection this frame: only move the boxes a little.
     if (canvas.width && canvas.height) {
       tracker.tick(timestamp);
-      renderOverlay(timestamp);
+      if (!LITE_MODE || timestamp - lastOverlayAt >= OVERLAY_INTERVAL_LITE) {
+        lastOverlayAt = timestamp;
+        renderOverlay(timestamp);
+      }
       notifyTracking();
     }
 
@@ -1690,7 +1743,7 @@ function processFrame(timestamp) {
 
     if (
       personDetector &&
-      timestamp - lastPersonInference >= PERSON_INTERVAL
+      timestamp - lastPersonInference >= personIntervalMs()
     ) {
 
       if (lastPersonInference > 0) personGapMs = timestamp - lastPersonInference;
@@ -1728,7 +1781,7 @@ function processFrame(timestamp) {
       // that box is missing), so the thumbnail is not read otherwise.
       const blocked =
         tracker.getSnapshot().selectedId !== null
-          ? looksBlocked()
+          ? looksBlockedThrottled(timestamp)
           : false;
 
       tracker.update(persons, timestamp, width, height, { blocked });
@@ -1747,6 +1800,7 @@ function processFrame(timestamp) {
         (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
         (personDelegate ? ` · ${personDelegate}` : "") +
         (inferenceSamples.length ? ` · INF ${inferenceStats()}` : "") +
+        (inferenceIsSlow() ? " · เครื่องช้า/ร้อน" : "") +
         (tracker.getSnapshot().selectedId !== null ? ` · MISS ${selectedMissTimes.length}/60s` : "");
     }
 

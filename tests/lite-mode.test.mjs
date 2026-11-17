@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectLiteMode } from "../js/lite-mode.js";
+import { detectLiteMode, personIntervalFor } from "../js/lite-mode.js";
 
 const phone = { userAgent: "Mozilla/5.0 (Linux; Android 13; Infinix X6711) Chrome/120 Mobile Safari/537.36" };
 const desktop = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36" };
@@ -28,4 +28,16 @@ test("userAgentData.mobile wins over the user agent string", () => {
 
 test("missing navigator is treated as not mobile", () => {
   assert.equal(detectLiteMode("", {}), false);
+});
+
+test("lite mode detects slowly while FOLLOW is off and at the normal rate while it is on", () => {
+  const base = { normalMs: 200, idleMs: 500 };
+  assert.equal(personIntervalFor({ ...base, lite: true, following: false }), 500);
+  assert.equal(personIntervalFor({ ...base, lite: true, following: true }), 200);
+});
+
+test("the desktop always uses the normal rate", () => {
+  const base = { normalMs: 200, idleMs: 500 };
+  assert.equal(personIntervalFor({ ...base, lite: false, following: false }), 200);
+  assert.equal(personIntervalFor({ ...base, lite: false, following: true }), 200);
 });
