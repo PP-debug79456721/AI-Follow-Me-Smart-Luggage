@@ -162,7 +162,10 @@ before Upload. Small changes are safer made inside the IDE.
   (`6E400001-...` service, `6E400002` RX write, `6E400003` TX notify), one JSON message per line ended by `\n`,
   `ble_framing.h` (portable, host-tested). BLE callbacks only queue lines; `loop()` delivers them.
   **BLE glue is NOT compiled against the real ESP32 toolchain and never ran on a board.** Needs Tools -> Partition
-  Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)". The web app has NO BLE client yet (test with nRF Connect).
+  Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)". Web side: `js/ble-socket.js` (URL `ble://`, optional `ble://?chunk=100`) makes Web Bluetooth look like a WebSocket, so the
+  session/link/protocol are unchanged; tests/ble-socket.test.mjs uses a FAKE Bluetooth device. **Never tried on a real phone/board.**
+  The chooser needs a user gesture (the CONNECT click); the chosen device is kept for reconnects, a page reload forgets it.
+  Android Chrome only (no iPhone). Also testable with nRF Connect.
   Serial status adds `wifi=<status code>` and `ble=<connected>/<connects> bledrop=<in>/<out>`.
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`

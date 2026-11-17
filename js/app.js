@@ -18,6 +18,7 @@ import { createEsp32Session } from "./esp32-session.js";
 import { LITE_MODE } from "./lite-mode.js";
 import { createMotionSmoother } from "./motion-smoother.js";
 import { createMockDeviceNetwork } from "./mock-socket.js";
+import { createBleSocketFactory } from "./ble-socket.js";
 import { initLegacyOwnerData }
   from "./legacy-owner-data.js";
 import { initPersonSelection }
@@ -185,6 +186,7 @@ video.addEventListener("error", () => {
 // ---------------------------------------------------------------------------
 
 let mockNetwork = null;
+const bleSockets = createBleSocketFactory();   // "ble://" = Bluetooth LE (Web Bluetooth)
 
 const DEMO_MODE = new URLSearchParams(location.search).get("mode") === "demo";
 // Detection evidence may be up to 1.2 s old and a command may run up to 1.5 s
@@ -197,6 +199,7 @@ const session = createEsp32Session({
       mockNetwork ??= createMockDeviceNetwork();
       return mockNetwork.createSocket(url);
     }
+    if (url.startsWith("ble:")) return bleSockets.createSocket(url);
     return new WebSocket(url);
   },
   // Bench (phone on Wi-Fi): stalls of 0.6-1 s dropped ARM with the 600 ms

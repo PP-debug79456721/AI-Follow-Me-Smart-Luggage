@@ -266,10 +266,14 @@ export function createEsp32Session({
       onSocketLost("ERROR");
     });
 
+    // A transport may need longer than a WebSocket to open (Bluetooth: device chooser).
+    const openTimeoutMs =
+      typeof created.openTimeoutMs === "number" ? created.openTimeoutMs : config.openTimeoutMs;
+
     openTimer = timers.setTimeout(() => {
       openTimer = null;
       if (mine === generation && created.readyState !== SOCKET_OPEN) onSocketLost("OPEN_TIMEOUT");
-    }, config.openTimeoutMs);
+    }, openTimeoutMs);
   }
 
   function onFrame(data) {
