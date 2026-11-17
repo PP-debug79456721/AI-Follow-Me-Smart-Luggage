@@ -138,10 +138,14 @@ const char* wifiDisconnectReasonName(uint8_t reason) {
 }
 
 void registerWifiDiagnostics() {
+  static uint32_t connectedCount = 0;
+  static uint32_t disconnectedCount = 0;
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     switch (event) {
       case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-        Serial.println("[WiFi] STA_CONNECTED");
+        ++connectedCount;
+        Serial.print("[WiFi] STA_CONNECTED count=");
+        Serial.println(connectedCount);
         break;
       case ARDUINO_EVENT_WIFI_STA_GOT_IP:
         Serial.print("[WiFi] GOT_IP ip=");
@@ -152,8 +156,11 @@ void registerWifiDiagnostics() {
         Serial.println(WiFi.subnetMask());
         break;
       case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+        ++disconnectedCount;
         const uint8_t reason = info.wifi_sta_disconnected.reason;
-        Serial.print("[WiFi] DISCONNECTED reason=");
+        Serial.print("[WiFi] DISCONNECTED count=");
+        Serial.print(disconnectedCount);
+        Serial.print(" reason=");
         Serial.print(reason);
         Serial.print(" name=");
         Serial.println(wifiDisconnectReasonName(reason));
