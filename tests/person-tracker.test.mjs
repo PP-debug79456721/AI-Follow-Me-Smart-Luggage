@@ -196,6 +196,29 @@ test("a different-sized box far away is not taken as the target", () => {
   assert.equal(state(tracker), TRACK_STATE.SEARCHING);
 });
 
+test("near-tied overlapping detections are rejected instead of switching targets", () => {
+  const tracker = trackerWithSelection(person(200, 100, 160, 300));
+  // Both candidates overlap the previous target almost equally. The tracker
+  // cannot know which person is the owner, so it must enter SEARCHING.
+  tracker.update([
+    person(180, 100, 160, 300),
+    person(220, 100, 160, 300)
+  ], 500, W, H);
+  assert.equal(state(tracker), TRACK_STATE.SEARCHING);
+  assert.equal(tracker.getTarget().matched, false);
+  assert.equal(tracker.getDrawables(500).filter(item => item.selected && item.searching).length, 1);
+});
+
+test("appearance rejection restores the last confirmed target box", () => {
+  const tracker = trackerWithSelection(person(200, 100));
+  tracker.update([person(210, 100)], 500, W, H);
+  assert.equal(state(tracker), TRACK_STATE.TRACKING);
+  assert.equal(tracker.rejectCurrentMatch(510), true);
+  assert.equal(state(tracker), TRACK_STATE.SEARCHING);
+  assert.equal(tracker.getTarget().box.originX, 200);
+  assert.equal(tracker.getTarget().matched, false);
+});
+
 // --------------------------------------------------
 // SEARCHING and LOST
 // --------------------------------------------------

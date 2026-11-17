@@ -45,6 +45,8 @@ const DEFAULTS = Object.freeze({
   lostAfterMs: 2500,        // grace time before a missing target counts as lost
   edgeMarginRatio: 0.04,    // "touching the edge" = within 4 % of the frame
   minIou: 0.15,             // overlap needed to treat two boxes as the same
+  ambiguityIouMargin: 0.08, // reject near-tied matches instead of switching people
+  ambiguityDistanceMargin: 0.12,
   maxCenterDistRatio: 0.6,  // fallback: centre distance / sqrt(box area)
   glideDistRatio: 1.0,      // looser limit used only to animate drawn boxes
   tapPaddingRatio: 0.04,    // forgiveness around a box when tapping
@@ -338,24 +340,28 @@ export function createPersonTracker(options = {}) {
 
       if (selected) {
 
-        let best = null;
+        const matches = [];
 
         detections.forEach((candidate, index) => {
-
           const quality = matchQuality(selected.box, candidate.box);
-
-          if (!quality.ok) return;
-
-          if (
-            !best ||
-            quality.overlap > best.overlap ||
-            (quality.overlap === best.overlap && quality.distance < best.distance)
-          ) {
-            best = { index, ...quality };
-          }
+          if (quality.ok) matches.push({ index, ...quality });
         });
 
-        if (best) {
+        matches.sort((a, b) =>
+          b.overlap - a.overlap || a.distance - b.distance
+        );
+
+        const best = matches[0] || null;
+        const second = matches[1] || null;
+        const ambiguous = Boolean(best && second &&
+          best.overlap - second.overlap <= config.ambiguityIouMargin &&
+          second.distance - best.distance <= config.ambiguityDistanceMargin);
+
+        // If two detections are almost equally plausible, preserve the last
+        // confirmed target position and wait. Never guess between people.
+        if (ambiguous) {
+          selected.matched = false;
+        } else if (best) {
           const hit = detections[best.index];
           hit.selected = true;
           selected.prevBox = selected.box;
@@ -516,6 +522,21 @@ export function createPersonTracker(options = {}) {
      * drawn box), for motion decisions. null when nothing is selected.
      * Returns copies; the caller cannot change tracker state.
      */
+    /*
+     * Reject the latest geometric match when an independent appearance
+     * check says it is not the enrolled owner. Keep the last confirmed box.
+     */
+    rejectCurrentMatch(now) {
+      if (!selected || !selected.matched) return false;
+      const rejected = detections.find(candidate => candidate.selected);
+      if (rejected) rejected.selected = false;
+      if (selected.prevBox) selected.box = copyBox(selected.prevBox);
+      selected.prevBox = null;
+      selected.matched = false;
+      evaluate(now, false);
+      return true;
+    },
+
     getTarget() {
 
       if (!selected) return null;

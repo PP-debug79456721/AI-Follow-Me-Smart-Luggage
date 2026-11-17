@@ -874,6 +874,7 @@ let enrolRemaining = 0;
 let faceRoundBusy = false;
 let lastFaceRoundAt = 0;
 let lastSignatureAt = 0;
+let lastIdentityCheckAt = 0;
 let lastPersonBoxes = [];
 let lastPersonAt = 0;
 let faceModule = null;
@@ -1128,10 +1129,35 @@ function ownerAfterPersons(timestamp) {
   if (!OWNER_HOST || lastPersonAt !== timestamp) return;
 
   const target = tracker.getTarget();
+  let appearanceVerified = ownerAlbum.length === 0;
 
-  // Keep the clothing signature of the followed box up to date, but only
-  // while it is matched and does not overlap anybody else.
+  // Once clothes have been enrolled, verify the selected target during
+  // tracking as well as during reacquisition. A failed/ambiguous check
+  // rejects this frame and keeps the last confirmed target position.
   if (target && target.state === "TRACKING" && target.matched &&
+      ownerAlbum.length > 0 &&
+      timestamp - lastIdentityCheckAt >= SIGNATURE_REFRESH_MS) {
+    lastIdentityCheckAt = timestamp;
+    const identitySignature = signatureOf(target.box);
+    const identityScore = identitySignature
+      ? albumScore(ownerAlbum, identitySignature)
+      : NaN;
+    clothScore = identityScore;
+    if (Number.isFinite(identityScore) &&
+        identityScore < RECOGNIZER_DEFAULTS.clothThreshold) {
+      tracker.rejectCurrentMatch(timestamp);
+      ownerLastEvent = "เป้าหมายไม่ผ่านการตรวจสอบเสื้อผ้า";
+      resetOwnerAgreements();
+      return;
+    }
+    appearanceVerified = Number.isFinite(identityScore) &&
+      identityScore >= RECOGNIZER_DEFAULTS.clothThreshold;
+  }
+
+  // Learn only after appearance has passed. With no enrolled appearance
+  // album, the user's explicit initial selection is the session baseline.
+  if (target && target.state === "TRACKING" && target.matched &&
+      appearanceVerified &&
       timestamp - lastSignatureAt >= SIGNATURE_REFRESH_MS) {
     const alone = lastPersonBoxes.every(b => boxIoU(b, target.box) > 0.9 || boxIoU(b, target.box) < 0.05);
     if (alone && timestamp - lastReidLearnAt >= REID_LEARN_MS && (reidReadyCache || OWNER_FEATURES)) {
