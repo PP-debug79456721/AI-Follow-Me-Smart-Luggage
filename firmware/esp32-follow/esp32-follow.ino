@@ -1,8 +1,9 @@
 // ESP32 Follow-Me firmware: PHASE 2 (MOTOR OUTPUT ENABLED).
 //
-// Protocol v2 (a port of js/mock-esp32.js), the safety kernel, the obstacle interlock and a
-// WebSocket server, now driving two BTS7960 boards and the motor-power relay through
-// BtsMotorHal (bts_motor_hal.h). The SafetyKernel is still the ONLY writer of motor output.
+// Protocol v2 (a port of js/mock-esp32.js), the safety kernel, the obstacle interlock and two
+// transports (Wi-Fi WebSocket and/or Bluetooth LE, kEnableWifi / kEnableBle in config.h, both on
+// by default), driving two BTS7960 boards and the motor-power relay through BtsMotorHal
+// (bts_motor_hal.h). The SafetyKernel is still the ONLY writer of motor output.
 //
 // Stops: app STOP/ESTOP, 600 ms movement watchdog, 600 ms session liveness, lost socket,
 // lost Wi-Fi, obstacle interlock (only if kUltrasonicInstalled), loop-task watchdog reset.
@@ -11,6 +12,8 @@
 // Settings (duty, turn ratio, direction, ultrasonic on/off) are in config.h.
 //
 // Needs no extra library: board "ESP32 Dev Module" with the Arduino-ESP32 core.
+// With BLE on, choose Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)" (Wi-Fi + BLE
+// do not fit the default 1.3 MB app partition).
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -25,6 +28,8 @@
 #include "bts_motor_hal.h"
 #include "sonar_sources.h"
 #include "ws_server.h"
+#include "transport_router.h"
+#include "ble_server.h"
 
 #if !__has_include("wifi_secrets.h")
 #error "Copy wifi_secrets.example.h to wifi_secrets.h and fill in your 2.4 GHz network."
@@ -41,17 +46,29 @@ struct EspRandom : Random32 {
   uint32_t next() override { return esp_random(); }
 };
 
-struct WsSink : ReplySink {
+// Both transports feed the SAME protocol and safety kernel through one router (see
+// transport_router.h). Replies go back to the transport the message came from.
+struct WsChannel : Channel {
   WsServer* server = nullptr;
-  void send(const char* json, size_t length) override {
-    if (server) server->sendText(json, length);
+  bool sendText(const char* json, size_t length) override {
+    return server != nullptr && server->sendText(json, length);
   }
+};
+
+struct KernelTarget : RouterTarget {
+  void onMessage(const char* text, size_t length, double now) override;
+  void onTransportClosed(double now) override;
 };
 
 struct App;
 
 EspRandom rng;
-WsSink sink;
+TransportRouter router;             // the protocol's reply sink
+WsChannel wsChannel;
+KernelTarget kernelTarget;
+BleServer bleServer;
+int wsChannelId = -1;
+int bleChannelId = -1;
 BtsMotorHal hal;                    // real BTS7960 + relay driver (written only by the kernel)
 InterlockConfig interlockConfig() {
   InterlockConfig c;
@@ -69,15 +86,28 @@ WsServer* wsServer = nullptr;
 
 double nowMs() { return static_cast<double>(esp_timer_get_time()) / 1000.0; }
 
+void KernelTarget::onMessage(const char* text, size_t length, double now) {
+  if (kernel) kernel->onMessage(text, length, now);
+}
+void KernelTarget::onTransportClosed(double now) {
+  if (kernel) kernel->onTransportClosed(now);
+}
+
 struct App : WsServer::Handler {
   void onText(const char* text, size_t length, double now) override {
-    if (kernel) kernel->onMessage(text, length, now);
+    router.onText(wsChannelId, text, length, now);
   }
-  void onClosed(double now) override {
-    if (kernel) kernel->onTransportClosed(now);
-  }
+  void onClosed(double now) override { router.onClosed(wsChannelId, now); }
 };
 App app;
+
+struct BleApp : BleServer::Handler {
+  void onText(const char* text, size_t length, double now) override {
+    router.onText(bleChannelId, text, length, now);
+  }
+  void onClosed(double now) override { router.onClosed(bleChannelId, now); }
+};
+BleApp bleApp;
 
 bool wasUp = false;
 bool serverStarted = false;
@@ -87,7 +117,7 @@ double lastReport = 0;
 void wifiMaintain(double now) {
   const bool up = WiFi.status() == WL_CONNECTED;
   if (wasUp && !up) {
-    if (kernel) kernel->onTransportClosed(now);                 // Wi-Fi lost: stop at once
+    router.onClosed(wsChannelId, now);                          // Wi-Fi lost: stop at once
     Serial.println("Wi-Fi lost: motors stopped, reconnecting");
     lastWifiTry = now;
   }
@@ -128,17 +158,31 @@ void setup() {
   }
   enableLoopWDT();                    // a stuck loop resets the chip (EN pull-downs -> drivers off)
 
-  WiFi.mode(WIFI_STA);
-  if (kUseStaticIp) {
-    const IPAddress ip(kStaticIp[0], kStaticIp[1], kStaticIp[2], kStaticIp[3]);
-    const IPAddress gw(kGatewayIp[0], kGatewayIp[1], kGatewayIp[2], kGatewayIp[3]);
-    const IPAddress mask(kSubnetMask[0], kSubnetMask[1], kSubnetMask[2], kSubnetMask[3]);
-    if (!WiFi.config(ip, gw, mask, gw)) Serial.println("static IP config FAILED: using DHCP");
+  if (kEnableWifi) {
+    WiFi.mode(WIFI_STA);
+    if (kUseStaticIp) {
+      const IPAddress ip(kStaticIp[0], kStaticIp[1], kStaticIp[2], kStaticIp[3]);
+      const IPAddress gw(kGatewayIp[0], kGatewayIp[1], kGatewayIp[2], kGatewayIp[3]);
+      const IPAddress mask(kSubnetMask[0], kSubnetMask[1], kSubnetMask[2], kSubnetMask[3]);
+      if (!WiFi.config(ip, gw, mask, gw)) Serial.println("static IP config FAILED: using DHCP");
+    }
+    WiFi.setSleep(false);               // PROPOSAL: lower, steadier latency
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    lastWifiTry = nowMs();
+  } else {
+    Serial.println("Wi-Fi: OFF (kEnableWifi = false)");
   }
-  WiFi.setSleep(false);               // PROPOSAL: lower, steadier latency
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  lastWifiTry = nowMs();
+
+  // BLE is started before the protocol objects: esp_random() is a true random source only while
+  // the Wi-Fi or Bluetooth radio is active.
+  if (kEnableBle) {
+    bleServer.begin(kBleName);
+    Serial.print("BLE: advertising as ");
+    Serial.println(kBleName);
+  } else {
+    Serial.println("BLE: OFF (kEnableBle = false)");
+  }
 
   // Bench (phone on Wi-Fi): the connection may be silent up to 1200 ms before the
   // session latches (was 600). Motion still stops by the lease (evidenceMaxMs 700)
@@ -150,10 +194,13 @@ void setup() {
   // still sends at most 450 ms / 700 ms; DEMO mode (?mode=demo) up to 1200 / 1500.
   protocolConfig.ageClaimMaxMs = 1200;
   protocolConfig.evidenceMaxMs = 1500;
-  protocol = new Protocol(&rng, &sink, nullptr, protocolConfig);   // BOOT_LATCHED
+  protocol = new Protocol(&rng, &router, nullptr, protocolConfig);   // BOOT_LATCHED
   kernel = new SafetyKernel(*protocol, hal, interlock);
   wsServer = new WsServer(kWsPort, kWsPath, app);
-  sink.server = wsServer;
+  wsChannel.server = wsServer;
+  wsChannelId = router.addChannel(&wsChannel);
+  bleChannelId = router.addChannel(&bleServer);
+  router.setTarget(&kernelTarget);
 
   kernel->init(nowMs());
 }
@@ -166,9 +213,11 @@ void loop() {
   if (lastLoopAt > 0 && now - lastLoopAt > maxLoopGapMs) maxLoopGapMs = now - lastLoopAt;
   lastLoopAt = now;
 
-  wifiMaintain(now);
-
-  if (wsServer) wsServer->poll(now);
+  if (kEnableWifi) {
+    wifiMaintain(now);
+    if (wsServer) wsServer->poll(now);
+  }
+  if (kEnableBle) bleServer.poll(now, bleApp);
 
   // Sensor source (null in this phase): feeds the interlock when a measurement completes.
   for (int i = 0; i < Interlock::kSensors; i += 1) {
@@ -227,8 +276,22 @@ void loop() {
       Serial.print(wsServer ? wsServer->closes() : 0);
       Serial.print("/");
       Serial.print(wsServer ? wsServer->lastCloseReason() : "-");
-      Serial.print(" rssi=");
-      Serial.print(WiFi.RSSI());
+      if (kEnableWifi) {
+        Serial.print(" wifi=");
+        Serial.print(static_cast<int>(WiFi.status()));
+        Serial.print(" rssi=");
+        Serial.print(WiFi.RSSI());
+      }
+      if (kEnableBle) {
+        Serial.print(" ble=");
+        Serial.print(bleServer.connected() ? 1 : 0);
+        Serial.print("/");
+        Serial.print(bleServer.connects());
+        Serial.print(" bledrop=");
+        Serial.print(bleServer.droppedIn());
+        Serial.print("/");
+        Serial.print(bleServer.droppedOut());
+      }
     }
     Serial.print(" maxgap=");
     Serial.print(static_cast<int>(maxLoopGapMs));

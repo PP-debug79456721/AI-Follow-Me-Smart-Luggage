@@ -69,6 +69,19 @@ constexpr uint8_t kSubnetMask[4] = {255, 255, 255, 0};
 constexpr uint16_t kWsPort = 81;
 constexpr const char* kWsPath = "/ws";
 
+// ---- transports: how the app reaches the ESP32. Both can be on at once. They feed the SAME
+// protocol and safety kernel (one session at a time, BUSY for a second client).
+// kEnableWifi: WebSocket server on the hotspot (above). Needs a 2.4 GHz network.
+// kEnableBle : Bluetooth LE, no router or hotspot. Nordic UART service, JSON messages as lines
+//              ending in '\n'. Needs a partition scheme with room for Wi-Fi + BLE:
+//              Arduino IDE -> Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)".
+// While BLE is connected the radio is shared with Wi-Fi, which can add latency to Wi-Fi.
+constexpr bool kEnableWifi = true;
+constexpr bool kEnableBle = true;
+constexpr const char* kBleName = "FollowMe-Luggage";
+constexpr unsigned kBleMaxChunk = 180;   // largest notification payload (bytes), also limited by the MTU
+static_assert(kEnableWifi || kEnableBle, "enable at least one transport");
+
 // Safety kernel loop period target. Must stay far below the two 600 ms protocol timers.
 constexpr double kKernelTickMs = 10;
 

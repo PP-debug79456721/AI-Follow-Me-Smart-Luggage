@@ -153,8 +153,17 @@ before Upload. Small changes are safer made inside the IDE.
   Relay stays on 5 s after the last movement. LEDC write failure latches everything off.
 - `config.h`: real pins, one EN per side, `kDriveDuty 0.60` (<= 0.60 until the 10 A fuse is fitted), `kDutyMax 0.80` (static_assert),
   `kRampPerSecond 2.5`, `kTurnInnerFraction 0.60`, `kLeftGain 1.00`, `kRightGain 1.10`,
-  `kUltrasonicInstalled true` (2x AB043 = HC-SR04, trig 18/19, echo 34/35 via 1k/2k), `kStopDistanceMm 500`.
-  Serial adds `sonar=<mm|clear|NO_ECHO>/<...>`. NO_ECHO blocks motion (fail-safe).
+  `kUltrasonicInstalled false` (2x AB043 = HC-SR04 planned: trig 18/19, echo 34/35 via 1k/2k; true without the
+  sensors wired = NO_ECHO blocks all motion), `kStopDistanceMm 500`.
+  Serial adds `sonar=<mm|clear|NO_ECHO>/<...>` when the sonar is on.
+- **Transports (2026-11-17)**: `kEnableWifi` / `kEnableBle` in `config.h`, both true by default. Wi-Fi WebSocket
+  and Bluetooth LE feed the SAME protocol + safety kernel through `transport_router.h` (replies go back to the
+  channel that sent the message; ANY channel closing stops the motors). BLE = `ble_server.h`, Nordic UART service
+  (`6E400001-...` service, `6E400002` RX write, `6E400003` TX notify), one JSON message per line ended by `\n`,
+  `ble_framing.h` (portable, host-tested). BLE callbacks only queue lines; `loop()` delivers them.
+  **BLE glue is NOT compiled against the real ESP32 toolchain and never ran on a board.** Needs Tools -> Partition
+  Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)". The web app has NO BLE client yet (test with nRF Connect).
+  Serial status adds `wifi=<status code>` and `ble=<connected>/<connects> bledrop=<in>/<out>`.
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`
   can block ~10 s and caused loop stalls, link timeouts and a task-watchdog reset.
