@@ -19,8 +19,11 @@ struct BLECharacteristicCallbacks {
   virtual void onWrite(BLECharacteristic*) {}
 };
 
+class BLEDescriptor {};
+
 class BLECharacteristic {
  public:
+  void addDescriptor(BLEDescriptor*) {}
   static const uint32_t PROPERTY_NOTIFY = 1;
   static const uint32_t PROPERTY_WRITE = 2;
   static const uint32_t PROPERTY_WRITE_NR = 4;

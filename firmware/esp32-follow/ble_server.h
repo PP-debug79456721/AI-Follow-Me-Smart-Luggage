@@ -24,8 +24,13 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR < 3
-#include <BLE2902.h>   // core 2.x needs the notify descriptor added by hand; core 3.x adds it itself
+// The notify descriptor (CCCD, 0x2902) is what lets a phone switch notifications on. With the default
+// (Bluedroid) BLE library it is NOT added automatically, on core 2.x AND 3.x: without it a phone app
+// says "no CCCD" and never receives anything. Add it whenever the header exists (it may print a
+// deprecation warning on newer cores; that is harmless).
+#if __has_include(<BLE2902.h>)
+#include <BLE2902.h>
+#define FOLLOW_ADD_CCCD 1
 #endif
 
 #include "ble_framing.h"
@@ -54,7 +59,7 @@ class BleServer : public Channel {
     BLEService* service = server_->createService(kBleServiceUuid);
 
     tx_ = service->createCharacteristic(kBleTxUuid, BLECharacteristic::PROPERTY_NOTIFY);
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR < 3
+#ifdef FOLLOW_ADD_CCCD
     tx_->addDescriptor(new BLE2902());
 #endif
 
