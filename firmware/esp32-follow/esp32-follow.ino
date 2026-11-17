@@ -114,6 +114,60 @@ bool serverStarted = false;
 double lastWifiTry = -10000;
 double lastReport = 0;
 
+const char* wifiDisconnectReasonName(uint8_t reason) {
+  switch (reason) {
+    case WIFI_REASON_UNSPECIFIED: return "UNSPECIFIED";
+    case WIFI_REASON_AUTH_EXPIRE: return "AUTH_EXPIRE";
+    case WIFI_REASON_AUTH_LEAVE: return "AUTH_LEAVE";
+    case WIFI_REASON_ASSOC_EXPIRE: return "ASSOC_EXPIRE";
+    case WIFI_REASON_ASSOC_TOOMANY: return "ASSOC_TOOMANY";
+    case WIFI_REASON_NOT_AUTHED: return "NOT_AUTHED";
+    case WIFI_REASON_NOT_ASSOCED: return "NOT_ASSOCED";
+    case WIFI_REASON_ASSOC_LEAVE: return "ASSOC_LEAVE";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4WAY_HANDSHAKE_TIMEOUT";
+    case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT: return "GROUP_KEY_UPDATE_TIMEOUT";
+    case WIFI_REASON_IE_IN_4WAY_DIFFERS: return "IE_IN_4WAY_DIFFERS";
+    case WIFI_REASON_MIC_FAILURE: return "MIC_FAILURE";
+    case WIFI_REASON_BEACON_TIMEOUT: return "BEACON_TIMEOUT";
+    case WIFI_REASON_NO_AP_FOUND: return "NO_AP_FOUND";
+    case WIFI_REASON_AUTH_FAIL: return "AUTH_FAIL";
+    case WIFI_REASON_ASSOC_FAIL: return "ASSOC_FAIL";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT: return "HANDSHAKE_TIMEOUT";
+    default: return "UNKNOWN_REASON";
+  }
+}
+
+void registerWifiDiagnostics() {
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    switch (event) {
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+        Serial.println("[WiFi] STA_CONNECTED");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        Serial.print("[WiFi] GOT_IP ip=");
+        Serial.print(WiFi.localIP());
+        Serial.print(" gateway=");
+        Serial.print(WiFi.gatewayIP());
+        Serial.print(" subnet=");
+        Serial.println(WiFi.subnetMask());
+        break;
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+        const uint8_t reason = info.wifi_sta_disconnected.reason;
+        Serial.print("[WiFi] DISCONNECTED reason=");
+        Serial.print(reason);
+        Serial.print(" name=");
+        Serial.println(wifiDisconnectReasonName(reason));
+        break;
+      }
+      case ARDUINO_EVENT_WIFI_STA_LOST_IP:
+        Serial.println("[WiFi] LOST_IP");
+        break;
+      default:
+        break;
+    }
+  });
+}
+
 void wifiMaintain(double now) {
   const bool up = WiFi.status() == WL_CONNECTED;
   if (wasUp && !up) {
@@ -159,6 +213,7 @@ void setup() {
   enableLoopWDT();                    // a stuck loop resets the chip (EN pull-downs -> drivers off)
 
   if (kEnableWifi) {
+    registerWifiDiagnostics();
     WiFi.mode(WIFI_STA);
     if (kUseStaticIp) {
       const IPAddress ip(kStaticIp[0], kStaticIp[1], kStaticIp[2], kStaticIp[3]);
