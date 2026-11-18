@@ -28,6 +28,21 @@ export function personIntervalFor({ lite, following, normalMs, idleMs }) {
 }
 
 /*
+ * Person detection period while FOLLOW is off in lite mode (waiting, choosing the owner, finding the owner).
+ * 500 ms keeps the phone cool but makes the owner search slow (3 rounds of 5 are needed). ?idle=250 (ms)
+ * changes it; clamped to 150-1000 ms, anything else gives the default.
+ */
+export const IDLE_INTERVAL_DEFAULT_MS = 500;
+
+export function idleIntervalFor(search = "", defaultMs = IDLE_INTERVAL_DEFAULT_MS) {
+  const raw = new URLSearchParams(search).get("idle");
+  if (raw === null || raw.trim() === "") return defaultMs;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return defaultMs;
+  return Math.min(1000, Math.max(150, Math.round(value)));
+}
+
+/*
  * Re-ID (ONNX Runtime in WASM) runs on the page's main thread, the same thread that must answer the
  * ESP32 link. Every long task shows up as RTT / page stall, i.e. jerky wheels. So:
  *   - while FOLLOW is on, learning the followed person runs at most once per 4 s on every device (the

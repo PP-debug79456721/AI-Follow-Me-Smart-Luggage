@@ -238,6 +238,8 @@ before Upload. Small changes are safer made inside the IDE.
   active. Now `ownerAfterPersons(result.timestamp, ...)`; regression test `P6` in `tests/e2e/person-worker.e2e.mjs` (fails without the fix).
   Remaining limit: `signatureOf`/Re-ID crop the CURRENT video frame with a box from the detection frame (100-300 ms older), so a moving
   owner is cropped slightly off. Not fixed.
+- **`?idle=<ms>`** (lite-mode.js `idleIntervalFor`, clamp 150-1000, default 500): person detection period while FOLLOW is off in lite mode. 500 ms is the
+  idle period, NOT a fault; with FOLLOW on the worker period is 150 ms. A smaller `idle` speeds up the owner search (needs 3 of 5 rounds) but heats the phone.
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

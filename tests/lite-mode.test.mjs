@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectLiteMode, personIntervalFor, workerModeFor, WORKER_DEFAULT_IN_LITE } from "../js/lite-mode.js";
+import { detectLiteMode, personIntervalFor, workerModeFor, WORKER_DEFAULT_IN_LITE, idleIntervalFor } from "../js/lite-mode.js";
 
 const phone = { userAgent: "Mozilla/5.0 (Linux; Android 13; Infinix X6711) Chrome/120 Mobile Safari/537.36" };
 const desktop = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120 Safari/537.36" };
@@ -91,4 +91,16 @@ test("FI2 enrolment and a face crop export always get face detection; lite never
   assert.equal(faceIntervalFor({ ...base, lite: false, cropPending: true }), 500);
   assert.equal(faceIntervalFor({ ...base, lite: true, following: false, tracking: false }), Infinity);
   assert.equal(faceIntervalFor({ ...base, lite: true, enrolling: true }), Infinity);
+});
+
+test("ID1 ?idle= sets the idle detection period, clamped to 150-1000 ms; bad values give the default 500", () => {
+  assert.equal(idleIntervalFor(""), 500);
+  assert.equal(idleIntervalFor("?idle=250"), 250);
+  assert.equal(idleIntervalFor("?idle=50"), 150);
+  assert.equal(idleIntervalFor("?idle=5000"), 1000);
+  assert.equal(idleIntervalFor("?idle=abc"), 500);
+  assert.equal(idleIntervalFor("?idle="), 500);
+  assert.equal(idleIntervalFor("?idle=0"), 500);
+  assert.equal(idleIntervalFor("?idle=-20"), 500);
+  assert.equal(idleIntervalFor("?lite=1&idle=300&worker=1"), 300);
 });

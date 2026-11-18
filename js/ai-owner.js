@@ -39,7 +39,7 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
-import { LITE_MODE, faceIntervalFor, personIntervalFor, reidIntervalsFor, workerModeFor } from "./lite-mode.js";
+import { LITE_MODE, faceIntervalFor, idleIntervalFor, personIntervalFor, reidIntervalsFor, workerModeFor } from "./lite-mode.js";
 
 // Person detector in a Web Worker (opt-in ?worker=1): keeps the main thread free for the ESP32 link.
 import { createPersonWorkerClient } from "./person-worker-client.js";
@@ -257,7 +257,7 @@ const PERSON_INTERVAL_WORKER = 150;
 // Phones (lite mode) heat up: on a mid-range phone INF grew from ~180 ms to ~270 ms after 10 minutes.
 // While the luggage is NOT following (waiting, choosing the owner) there is no need to detect 5 times
 // a second, so lite mode detects every 500 ms until FOLLOW is switched on (setFollowActive).
-const PERSON_INTERVAL_IDLE = 500;
+const PERSON_INTERVAL_IDLE = idleIntervalFor(location.search);   // 500 ms; ?idle=250 for a faster owner search
 let followActive = false;
 
 // Lite mode redraws the overlay at most this often (the boxes glide, 15 fps is enough).
