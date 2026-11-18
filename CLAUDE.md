@@ -132,6 +132,17 @@ that differs from the repo (`status.lastEvent === "DEVICE_BUSY"` for the DEVICE 
   (also on reload and after DEVICE BUSY) until DISCONNECT. FOLLOW is never re-armed automatically.
   Screen Wake Lock keeps the phone screen on while FOLLOW is on. busyMaxMs 4000.
 
+### Libraries without the internet (vendor/, 2026-11-18)
+The page normally fetches MediaPipe, ONNX Runtime and the two .tflite detector models from
+`cdn.jsdelivr.net` / `storage.googleapis.com` on every load. `tools/fetch-vendor.ps1` (run once on a PC with
+internet, default target `C:\follow-app\vendor`) downloads them and writes `vendor/vendor-manifest.json`.
+`js/vendor-assets.js` then makes the page use `vendor/` first; no manifest, a version different from the code
+(MEDIAPIPE_VERSION / ORT_VERSION) or a local file that fails to load = CDN, as before. The PERSON DETECTION card
+shows `LIB LOCAL | CDN | MIXED`. `/vendor/` is git-ignored. If your server sends `.mjs` as
+`application/octet-stream` the local module fails and the page silently uses the CDN (LIB MIXED/CDN): send
+`.mjs` as `text/javascript`. The script has NOT been run on a real PC yet. No service worker/PWA yet (step 3),
+so the page itself still needs the PC server to open; the Re-ID/SFace `.onnx` files are separate (models/, cached).
+
 Flow: START CAMERA -> stand 2-3 m away -> tap the owner's box (TRACKING) -> URL `ws://<esp32-ip>:81/ws`
 -> CONNECT -> `CONNECTED (STOP)` -> ARM / FOLLOW.
 

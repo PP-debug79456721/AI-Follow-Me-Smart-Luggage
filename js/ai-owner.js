@@ -39,6 +39,9 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
 import { LITE_MODE, personIntervalFor } from "./lite-mode.js";
 
+// Pure: chooses between a local vendor/ copy of the libraries/models and the CDN.
+import { describeVendorPlan, loadVendorManifest, planVendorAssets } from "./vendor-assets.js";
+
 // Pure, no external imports: where the owner features may run.
 import { EDUCATION_HOSTS, ownerFeatureSet } from "./deploy-config.js";
 import { resolveModelUseMode } from "./embedding/model-policy.js";
@@ -68,6 +71,57 @@ const FACE_DETECTOR_MODEL_URL =
 
 const PERSON_DETECTOR_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite";
+
+// Only used to describe the ONNX Runtime part of the vendor plan in the log; the real loading is in
+// embedding/embedding-engine.js (same version and URLs, keep them in sync).
+const ORT_VERSION_FOR_VENDOR = "1.31.1";
+const ORT_CDN_MODULE_URL = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION_FOR_VENDOR}/dist/ort.wasm.min.mjs`;
+const ORT_CDN_BASE_URL = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION_FOR_VENDOR}/dist/`;
+
+// Local-first loading (see vendor-assets.js): files in vendor/ are used when vendor/vendor-manifest.json
+// lists them, otherwise (or when a local file fails to load) the CDN URLs above, exactly as before.
+const VENDOR_BASE_URL = new URL("../vendor/", import.meta.url).href;
+let faceModelUrl = FACE_DETECTOR_MODEL_URL;
+let personModelUrl = PERSON_DETECTOR_MODEL_URL;
+let libLabel = null;                       // "LOCAL" | "CDN" | "MIXED" once the runtime is loading
+
+async function loadMediapipeRuntime() {
+
+  const manifest = await loadVendorManifest({ baseUrl: VENDOR_BASE_URL });
+  const plan = planVendorAssets(manifest, {
+    baseUrl: VENDOR_BASE_URL,
+    mediapipeVersion: MEDIAPIPE_VERSION,
+    ortVersion: ORT_VERSION_FOR_VENDOR,
+    cdn: {
+      mediapipeBundle: MEDIAPIPE_BUNDLE_URL,
+      mediapipeWasm: MEDIAPIPE_WASM_URL,
+      ortModule: ORT_CDN_MODULE_URL,
+      ortBase: ORT_CDN_BASE_URL,
+      personModel: PERSON_DETECTOR_MODEL_URL,
+      faceModel: FACE_DETECTOR_MODEL_URL
+    }
+  });
+
+  faceModelUrl = plan.models.face.url;
+  personModelUrl = plan.models.person.url;
+  libLabel = describeVendorPlan(plan);
+  console.info(`[vendor] libraries: ${libLabel} (mediapipe ${plan.mediapipe.source}/${plan.mediapipe.reason}, ` +
+    `onnxruntime ${plan.onnx.source}/${plan.onnx.reason}, person model ${plan.models.person.source}, ` +
+    `face model ${plan.models.face.source})`);
+
+  if (plan.mediapipe.source === "local") {
+    try {
+      const tasks = await import(plan.mediapipe.bundleUrl);
+      return { tasks, wasmUrl: plan.mediapipe.wasmUrl };
+    } catch (error) {
+      // For example a server that sends .mjs with the wrong content type: use the CDN instead.
+      console.warn("[vendor] local MediaPipe failed to load, using the CDN:", error);
+      libLabel = "MIXED";
+    }
+  }
+
+  return { tasks: await import(MEDIAPIPE_BUNDLE_URL), wasmUrl: MEDIAPIPE_WASM_URL };
+}
 
 // Each loading step (runtime, face model, person model) may take this long.
 // The runtime is about 10 MB, so a slow phone connection needs time.
@@ -725,10 +779,11 @@ async function loadDetectors() {
 
   try {
 
-    tasks = await withTimeout(import(MEDIAPIPE_BUNDLE_URL), "MediaPipe runtime");
+    const runtime = await withTimeout(loadMediapipeRuntime(), "MediaPipe runtime");
+    tasks = runtime.tasks;
 
     vision = await withTimeout(
-      tasks.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL),
+      tasks.FilesetResolver.forVisionTasks(runtime.wasmUrl),
       "MediaPipe runtime"
     );
 
@@ -758,7 +813,7 @@ async function loadDetectors() {
         vision,
         {
           baseOptions: {
-            modelAssetPath: FACE_DETECTOR_MODEL_URL,
+            modelAssetPath: faceModelUrl,
             delegate: "CPU"
           },
           runningMode: "VIDEO",
@@ -784,7 +839,7 @@ async function loadDetectors() {
       vision,
       {
         baseOptions: {
-          modelAssetPath: PERSON_DETECTOR_MODEL_URL,
+          modelAssetPath: personModelUrl,
           delegate
         },
         runningMode: "VIDEO",
@@ -2069,6 +2124,7 @@ function processFrame(timestamp) {
         `${persons.length} PERSON(S)` +
         (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
         (personDelegate ? ` · ${personDelegate}` : "") +
+        (libLabel ? ` · LIB ${libLabel}` : "") +
         (inferenceSamples.length ? ` · INF ${inferenceStats()}` : "") +
         (inferenceIsSlow() ? " · เครื่องช้า/ร้อน" : "") +
         (tracker.getSnapshot().selectedId !== null ? ` · MISS ${selectedMissTimes.length}/60s` : "");

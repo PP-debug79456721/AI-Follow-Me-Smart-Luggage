@@ -12,3 +12,6 @@ firmware/**/wifi_secrets*.h
 node_modules/
 *pastedcontent*.txt
 __pycache__/
+
+# Local copies of the third-party libraries (tools/fetch-vendor.ps1); large, never commit
+/vendor/

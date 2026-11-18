@@ -4,19 +4,77 @@ import {
   getInputShape
 } from "./image-preprocessor.js";
 
-// onnxruntime-web ES module (WASM only). The wasm loader and binary are
-// fetched from wasmPaths below, so both URLs must use the same version.
-import * as ort from
-  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/ort.wasm.min.mjs";
+import {
+  loadVendorManifest,
+  planVendorAssets
+} from "../vendor-assets.js";
 
 // --------------------------------------------------
-// ONNX Runtime Configuration
+// ONNX Runtime (loaded on first use, local copy first)
 // --------------------------------------------------
 
-ort.env.wasm.numThreads = 1;
+// onnxruntime-web ES module (WASM only). The wasm loader and binary are fetched from wasmPaths, so
+// the module and wasmPaths must use the same version. A copy in vendor/ (vendor-manifest.json, see
+// vendor-assets.js and tools/fetch-vendor.ps1) is used first; the CDN is the fallback, exactly as
+// before. Keep ORT_VERSION and the URLs in sync with ORT_*_FOR_VENDOR in ai-owner.js.
+const ORT_VERSION = "1.31.1";
+const ORT_CDN_MODULE_URL =
+  `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/ort.wasm.min.mjs`;
+const ORT_CDN_BASE_URL =
+  `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+const VENDOR_BASE_URL = new URL("../../vendor/", import.meta.url).href;
 
-ort.env.wasm.wasmPaths =
-  "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/";
+let ortPromise = null;
+
+function getOrt() {
+  ortPromise ??= loadOnnxRuntime().catch(error => {
+    ortPromise = null;                     // allow a retry after a failure
+    throw error;
+  });
+  return ortPromise;
+}
+
+/* Loads ONNX Runtime without the cache. Exported for tests (baseUrl / fetchFn can be injected). */
+export async function loadOnnxRuntime({ baseUrl = VENDOR_BASE_URL, fetchFn } = {}) {
+
+  const manifest = await loadVendorManifest({ baseUrl, ...(fetchFn ? { fetchFn } : {}) });
+  const plan = planVendorAssets(manifest, {
+    baseUrl,
+    mediapipeVersion: null,
+    ortVersion: ORT_VERSION,
+    cdn: {
+      mediapipeBundle: "",
+      mediapipeWasm: "",
+      ortModule: ORT_CDN_MODULE_URL,
+      ortBase: ORT_CDN_BASE_URL,
+      personModel: "",
+      faceModel: ""
+    }
+  });
+
+  const attempts = [];
+  if (plan.onnx.source === "local") {
+    attempts.push({ source: "local", moduleUrl: plan.onnx.moduleUrl, wasmBase: plan.onnx.wasmBase });
+  }
+  attempts.push({ source: "cdn", moduleUrl: ORT_CDN_MODULE_URL, wasmBase: ORT_CDN_BASE_URL });
+
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    try {
+      const loaded = await import(attempt.moduleUrl);
+      loaded.env.wasm.numThreads = 1;
+      loaded.env.wasm.wasmPaths = attempt.wasmBase;
+      console.info(`[vendor] ONNX Runtime ${ORT_VERSION}: ${attempt.source}`);
+      return loaded;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[vendor] ONNX Runtime from ${attempt.source} failed:`, error);
+    }
+  }
+
+  throw lastError;
+}
 
 // --------------------------------------------------
 // Model Load Errors
@@ -291,6 +349,17 @@ export async function loadEmbeddingModel(
 
   onStatus("LOADING", {});
 
+  let ort;
+
+  try {
+    ort = await getOrt();
+  } catch (error) {
+    throw new ModelLoadError(
+      "NETWORK",
+      `ONNX Runtime could not be loaded: ${error?.message ?? error}`
+    );
+  }
+
   let session;
 
   try {
@@ -384,6 +453,8 @@ export async function createEmbedding(
   }
 
   assertInputShape(session, inputName, shape);
+
+  const ort = await getOrt();
 
   const inputTensor = new ort.Tensor(
     "float32",
