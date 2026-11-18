@@ -76,11 +76,11 @@ constexpr const char* kWsPath = "/ws";
 //              ending in '\n'. Needs a partition scheme with room for Wi-Fi + BLE:
 //              Arduino IDE -> Tools -> Partition Scheme -> "Huge APP (3MB No OTA/1MB SPIFFS)".
 // While BLE is connected the radio is shared with Wi-Fi, which can add latency to Wi-Fi.
-// Wi-Fi is OFF by default while the board cannot get an IP on the bench network: its endless
-// scanning/associating shares the radio with BLE and added ~40 ms (and spikes) to the BLE round trip
-// (RTT 100-300 ms -> 60-291 ms when switched off). Set true to use the WebSocket again.
-constexpr bool kEnableWifi = false;
-constexpr bool kEnableBle = true;
+// Wi-Fi only (owner's choice, 2026-11-18): the WebSocket on the phone's hotspot (2.4 GHz, WPA2). BLE is
+// off. Both can be on at once, but they share one radio and slow each other down, so pick one. With BLE
+// on, kEnableWifi=false avoided the endless Wi-Fi scanning (BLE RTT 100-300 ms -> 60-291 ms).
+constexpr bool kEnableWifi = true;
+constexpr bool kEnableBle = false;
 constexpr const char* kBleName = "FollowMe-Luggage";
 constexpr unsigned kBleMaxChunk = 180;   // largest notification payload (bytes), also limited by the MTU
 static_assert(kEnableWifi || kEnableBle, "enable at least one transport");
