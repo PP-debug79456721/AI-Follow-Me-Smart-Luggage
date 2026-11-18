@@ -60,11 +60,15 @@ constexpr SonarPins kSonar[2] = {{18, 34}, {19, 35}};   // PROPOSAL, UNVERIFIED
 constexpr uint32_t kStopDistanceMm = 500;
 
 // Network
-// Static IP so the app URL never changes (the hotspot's DHCP gave .107, .225, ...).
-// Pick an address the hotspot does not hand out to another device. false = DHCP.
-constexpr bool kUseStaticIp = false;   // true only on the Windows hotspot 192.168.137.x
-constexpr uint8_t kStaticIp[4] = {192, 168, 137, 50};
-constexpr uint8_t kGatewayIp[4] = {192, 168, 137, 1};   // the hotspot
+// Fixed address so the page URL never changes (the hotspot's DHCP gave .107, .225, ...).
+// The board first connects with DHCP; ONLY if that lease is in the same subnet as kStaticIp does it switch to
+// kStaticIp (gateway and mask come from the lease). On another network it stays on DHCP and prints why, so a
+// wrong subnet cannot cut the link. Pick a host number the hotspot does not hand out to another device.
+// false = always DHCP.
+constexpr bool kUseStaticIp = true;
+constexpr uint8_t kStaticIp[4] = {192, 168, 137, 50};   // the Windows hotspot's subnet 192.168.137.x
+// Not used any more (gateway and mask are taken from the DHCP lease); kept for reference.
+constexpr uint8_t kGatewayIp[4] = {192, 168, 137, 1};
 constexpr uint8_t kSubnetMask[4] = {255, 255, 255, 0};
 constexpr uint16_t kWsPort = 81;
 constexpr const char* kWsPath = "/ws";

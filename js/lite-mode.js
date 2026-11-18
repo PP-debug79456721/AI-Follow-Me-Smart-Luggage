@@ -27,6 +27,25 @@ export function personIntervalFor({ lite, following, normalMs, idleMs }) {
   return lite && !following ? idleMs : normalMs;
 }
 
+/*
+ * Re-ID (ONNX Runtime in WASM) runs on the page's main thread, the same thread that must answer the
+ * ESP32 link. On a phone, with the link gate at 300 ms, every long task shows up as RTT. So in lite mode:
+ *   - the search for the owner (only while nobody is followed) runs at most once per second,
+ *   - learning the followed person runs at most once per 4 s while FOLLOW is on (the album is already
+ *     built by then); before FOLLOW (enrolment, choosing) it keeps the normal rate.
+ * Desktop values are untouched.
+ */
+export const REID_LITE_FOLLOW_LEARN_MS = 4000;
+export const REID_LITE_SEARCH_MS = 1000;
+
+export function reidIntervalsFor({ lite, following, learnMs, searchMs }) {
+  if (!lite) return { learnMs, searchMs };
+  return {
+    learnMs: following ? Math.max(learnMs, REID_LITE_FOLLOW_LEARN_MS) : learnMs,
+    searchMs: Math.max(searchMs, REID_LITE_SEARCH_MS)
+  };
+}
+
 export const LITE_MODE = detectLiteMode(
   typeof location !== "undefined" ? location.search : "",
   typeof navigator !== "undefined" ? navigator : {}

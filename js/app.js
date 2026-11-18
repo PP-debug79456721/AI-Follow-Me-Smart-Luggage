@@ -451,7 +451,7 @@ function renderEspLink() {
     `socket: ${status.socket}   link: ${link.state}`,
     `follow: ${status.follow ? "ON" : "OFF"}   estop: ${status.emergency ? "LATCHED" : "no"}`,
     `sending: ${link.effective?.command ?? "-"} (${link.effective?.reason ?? "-"})`,
-    `device motor: ${deviceMotorText(status)}   rtt: ${link.rttEst ?? "-"} ms`,
+    `device motor: ${deviceMotorText(status)}   rtt: ${link.rttEst == null ? "-" : Math.round(link.rttEst)} ms`,
     `last: ${status.lastEvent ?? "-"}   resync: ${link.lastResyncReason ?? "-"}`,
     `page stall: ${Math.round(Math.max(stallShown, stallMax))} ms   buffered: ${status.buffered ?? "-"} B   hidden: ${hiddenCount}`,
     ...bleTimingLines(status)

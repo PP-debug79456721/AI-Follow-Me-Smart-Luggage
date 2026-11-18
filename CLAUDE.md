@@ -190,6 +190,15 @@ before Upload. Small changes are safer made inside the IDE.
   one makes the page STOP and wait for a new token = the move-stop pulses. The ESP32 card now also shows, for `ble://`:
   `ble write avg/max ms`, `send avg/max ms`, `chunk(s) of N B`, `ble reply assembly` (ble-socket.js `getStats()`), next to the
   existing `page stall` (longest gap between 100 ms page timer ticks) to tell uplink, downlink and a busy page apart.
+- **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
+  switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
+  on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the
+  Windows hotspot and a wrong subnet cannot cut the link. Syntax-checked against host stubs only, never run on the board.
+- **Wi-Fi test 2026-11-18**: `wifi=3 rssi -55..-62`, `rej=0 rate=0` (no PROOF_STALE / RATE_LIMITED, unlike BLE), turns correct
+  (`RIGHT L0.60/R0.40`, `LEFT L0.36/R0.66`). But the page showed `rtt 330 ms` (> link gate 300) and `page stall 360 ms`: with Wi-Fi the
+  radio is no longer the problem, the busy page thread (MediaPipe ~200 ms + Re-ID/ONNX on the main thread) inflates RTT, the gate
+  flips and the wheels pulse. Re-ID is now slower in lite mode (`reidIntervalsFor` in lite-mode.js: search 1 s; learning 4 s while
+  FOLLOW is on). A Web Worker for detection/Re-ID is the real fix (not done).
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`
   can block ~10 s and caused loop stalls, link timeouts and a task-watchdog reset.

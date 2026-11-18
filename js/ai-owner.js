@@ -37,7 +37,7 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
-import { LITE_MODE, personIntervalFor } from "./lite-mode.js";
+import { LITE_MODE, personIntervalFor, reidIntervalsFor } from "./lite-mode.js";
 
 // Pure: chooses between a local vendor/ copy of the libraries/models and the CDN.
 import { describeVendorPlan, loadVendorManifest, planVendorAssets } from "./vendor-assets.js";
@@ -939,7 +939,17 @@ const CLOTH_STORE = "owner.cloth.v2";     // album of colour histograms only, ne
 const CLOTH_ADD_GAP_MS = 2000;            // at most one new automatic view per 2 s
 const REID_STORE = "owner.reid.v1";       // 512-D OSNet vectors only, never images
 const REID_LEARN_MS = 1000;               // learn the followed person at most once per second
-const REID_SEARCH_MS = 500;               // re-acquire round at most every 0.5 s
+const REID_SEARCH_MS = 500;               // re-acquire round at most every 0.5 s (lite: 1 s, see lite-mode.js)
+
+// Effective Re-ID intervals: slower on phones so the main thread stays free for the ESP32 link.
+function reidIntervals() {
+  return reidIntervalsFor({
+    lite: LITE_MODE,
+    following: followActive,
+    learnMs: REID_LEARN_MS,
+    searchMs: REID_SEARCH_MS
+  });
+}
 const REID_MAX_CANDIDATES = 3;
 const ENROL_SAMPLES = 5;
 const FACE_ROUND_MS = 700;                // at most one SFace round per 0.7 s
@@ -1376,7 +1386,7 @@ function ownerAfterPersons(timestamp) {
     if (alone && appearanceVerified) {
       tracker.confirmCurrentMatch();
 
-      if (timestamp - lastReidLearnAt >= REID_LEARN_MS &&
+      if (timestamp - lastReidLearnAt >= reidIntervals().learnMs &&
           (reidReadyCache || REID_FEATURES)) {
         lastReidLearnAt = timestamp;
         reidLearn(timestamp, target.box);
@@ -1415,7 +1425,7 @@ function ownerAfterPersons(timestamp) {
   // Re-acquire with Re-ID when its model is loaded and it has learned the
   // owner: it is more reliable than colours, so it decides alone.
   if (reidReadyCache && reidAlbum.length > 0) {
-    if (!ownerAutoPaused && lastPersonBoxes.length > 0 && timestamp - lastReidSearchAt >= REID_SEARCH_MS) {
+    if (!ownerAutoPaused && lastPersonBoxes.length > 0 && timestamp - lastReidSearchAt >= reidIntervals().searchMs) {
       reidSearch(timestamp);
     }
     return;

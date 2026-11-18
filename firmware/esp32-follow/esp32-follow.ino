@@ -181,6 +181,51 @@ void registerWifiDiagnostics() {
   });
 }
 
+// Fixed IP for the page URL, WITHOUT guessing the network: the first connection after boot always uses
+// DHCP. Only when the DHCP lease is in the SAME subnet as kStaticIp, the board drops the lease and
+// reconnects once with kStaticIp (gateway and mask taken from the lease). On any other network it keeps the
+// DHCP address and says so on the serial monitor, so a wrong subnet can never cut the link.
+bool staticIpDecided = false;
+
+void maybeUseStaticIp() {
+  if (!kUseStaticIp || staticIpDecided) return;
+  staticIpDecided = true;
+
+  const IPAddress leased = WiFi.localIP();
+  const IPAddress mask = WiFi.subnetMask();
+  const IPAddress gateway = WiFi.gatewayIP();
+  const IPAddress wanted(kStaticIp[0], kStaticIp[1], kStaticIp[2], kStaticIp[3]);
+
+  if (leased == wanted) {
+    Serial.println("static IP: already on it");
+    return;
+  }
+  const uint32_t maskBits = static_cast<uint32_t>(mask);
+  if (maskBits == 0 || (static_cast<uint32_t>(leased) & maskBits) != (static_cast<uint32_t>(wanted) & maskBits)) {
+    Serial.print("static IP skipped: this network is ");
+    Serial.print(leased);
+    Serial.print(" (mask ");
+    Serial.print(mask);
+    Serial.print(") but kStaticIp is ");
+    Serial.print(wanted);
+    Serial.println(". Staying on DHCP.");
+    return;
+  }
+  if (wanted == gateway) {
+    Serial.println("static IP skipped: kStaticIp is the gateway address");
+    return;
+  }
+
+  Serial.print("static IP: leaving DHCP address ");
+  Serial.print(leased);
+  Serial.print(" for ");
+  Serial.println(wanted);
+  WiFi.disconnect(false);                       // keep the radio on, drop the association
+  if (!WiFi.config(wanted, gateway, mask, gateway)) Serial.println("static IP config FAILED: staying on DHCP");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  lastWifiTry = nowMs();
+}
+
 void wifiMaintain(double now) {
   const bool up = WiFi.status() == WL_CONNECTED;
   if (wasUp && !up) {
@@ -199,6 +244,7 @@ void wifiMaintain(double now) {
     wsServer->begin();
     serverStarted = true;
   }
+  if (up) maybeUseStaticIp();
   if (up && !wasUp) {
     Serial.print("WebSocket server: ws://");
     Serial.print(WiFi.localIP());
@@ -228,12 +274,7 @@ void setup() {
   if (kEnableWifi) {
     registerWifiDiagnostics();
     WiFi.mode(WIFI_STA);
-    if (kUseStaticIp) {
-      const IPAddress ip(kStaticIp[0], kStaticIp[1], kStaticIp[2], kStaticIp[3]);
-      const IPAddress gw(kGatewayIp[0], kGatewayIp[1], kGatewayIp[2], kGatewayIp[3]);
-      const IPAddress mask(kSubnetMask[0], kSubnetMask[1], kSubnetMask[2], kSubnetMask[3]);
-      if (!WiFi.config(ip, gw, mask, gw)) Serial.println("static IP config FAILED: using DHCP");
-    }
+    // (A fixed IP is applied after the first DHCP connection, see maybeUseStaticIp().)
     WiFi.setSleep(false);               // PROPOSAL: lower, steadier latency
     WiFi.setAutoReconnect(true);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
