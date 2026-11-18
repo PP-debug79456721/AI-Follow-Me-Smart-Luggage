@@ -5,6 +5,10 @@ models/**/*.onnx
 
 # ESP32 firmware Wi-Fi credentials (never commit)
 firmware/esp32-follow/wifi_secrets.h
+firmware/esp32-follow/wifi_secrets
+firmware/**/wifi_secrets*.h
+!firmware/**/wifi_secrets.example.h
+!firmware/**/host/stubs/wifi_secrets.h
 node_modules/
 *pastedcontent*.txt
 __pycache__/
