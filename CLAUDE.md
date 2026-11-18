@@ -231,6 +231,12 @@ before Upload. Small changes are safer made inside the IDE.
   labelled like a clothes match (`lockedHow` "เสื้อผ้า": UNVERIFIED label, no auto-learning until Re-ID confirms). The OWNER line shows
   `ค้นหา Re-ID 0.xx (เสื้อ 0.yy)` while searching. URL switches: `?fuse=0` = old Re-ID-only rule, `?reidfloor=0.55` = weakest Re-ID that clothes
   may confirm. Thresholds are starting values, NOT tuned on the real camera. Wrong-person risk: people in similar clothes.
+- **BUG FIXED 2026-11-18 (worker path): the owner logic never ran with `?worker=1`.** `ownerAfterPersons(timestamp)` returns unless
+  `timestamp === lastPersonAt` (the FRAME time of the detection); the worker path passed `lastFrameTimestamp`, so the clothing identity gate,
+  Re-ID/clothes learning and finding the owner again (FIND OWNER, Re-ID 12/12 but "not found") silently did nothing while the worker was
+  active. Now `ownerAfterPersons(result.timestamp, ...)`; regression test `P6` in `tests/e2e/person-worker.e2e.mjs` (fails without the fix).
+  Remaining limit: `signatureOf`/Re-ID crop the CURRENT video frame with a box from the detection frame (100-300 ms older), so a moving
+  owner is cropped slightly off. Not fixed.
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

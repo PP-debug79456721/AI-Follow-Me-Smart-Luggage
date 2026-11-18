@@ -173,3 +173,32 @@ test("P5 a heavy detector blocks the page on the main thread but not in the work
   assert.ok(mainGap >= 200, `the main-thread detector should block the page (gap ${mainGap})`);
   assert.ok(workerGap < mainGap / 2, `the worker should keep the page responsive (gap ${workerGap} vs ${mainGap})`);
 });
+
+/* A valid clothes album (39 bins per zone: 12 hues x 3 saturations + 3 gray) saved before the page loads. */
+function seedClothesAlbum() {
+  const bins = 39;
+  const flat = Array.from({ length: bins }, () => 1 / bins);
+  return JSON.stringify([{ upper: flat, lower: flat }]);
+}
+
+test("P6 the owner logic runs with the worker detector (owner search shows its scores)", { skip: SKIP }, async () => {
+  const album = seedClothesAlbum();
+  const context = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
+  await context.addInitScript(value => { try { localStorage.setItem("owner.cloth.v2", value); } catch { /* ignore */ } }, album);
+  const page = await context.newPage();
+  await context.route(/.*/, route => {
+    const url = route.request().url();
+    if (url.startsWith(baseUrl)) return route.continue();
+    if (/@mediapipe\/tasks-vision@[\d.]+\/vision_bundle\.mjs$/.test(url)) {
+      return route.fulfill({ contentType: "text/javascript", body: FAKE_VISION });
+    }
+    return route.abort();
+  });
+  try {
+    await page.goto(`${baseUrl}/index.html?worker=1`);
+    await page.click("#startBtn");
+    await page.waitForFunction(() => document.getElementById("readyPerson").textContent === "READY", null, { timeout: 30000 });
+    // Nobody is followed and a person is in view: the owner search must report its clothes score.
+    await waitText(page, "ownerStatus", "t.includes('ค้นหาจากเสื้อ')", 15000);
+  } finally { await context.close(); }
+});

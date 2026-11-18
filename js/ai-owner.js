@@ -2255,8 +2255,11 @@ function requestWorkerPersons(timestamp, width, height) {
         performance.now() - result.timestamp   // capture -> result applied
       );
 
-      // What processFrame() does after a main-thread detection.
-      ownerAfterPersons(lastFrameTimestamp, width, height);
+      // What processFrame() does after a main-thread detection. ownerAfterPersons() only runs for the round
+      // whose time equals lastPersonAt, which is the FRAME time of this result (not the current frame):
+      // passing lastFrameTimestamp here made it return at once, so with the worker the owner logic
+      // (clothing identity gate, Re-ID learning, finding the owner again) never ran.
+      ownerAfterPersons(result.timestamp, width, height);
       ownerStatus.textContent = ownerStatusText();
       notifyTracking();
 
