@@ -57,7 +57,11 @@ const DEFAULTS = Object.freeze({
   velocityAlpha: 0.6,       // weight of the newest speed sample (rest: previous speed)
   predictHorizonMs: 250,    // never extrapolate further than this
   predictGain: 0.7,         // damped: a person who stops must not be overshot
-  predictMaxShiftRatio: 0.12 // largest shift of the centre, as a part of the frame size
+  predictMaxShiftRatio: 0.12, // largest shift of the centre, as a part of the frame size
+  // Predicting the SIZE (box growing when the owner comes closer) made the "close enough" stop (box height
+  // >= 95 % of the frame) fire a few points early, so the luggage stopped farther away than set. The stop
+  // must use the real height, so only the POSITION is predicted unless this is switched on.
+  predictSize: false
 });
 
 function clamp(value, low, high) {
@@ -617,7 +621,8 @@ export function createPersonTracker(options = {}) {
 
     /*
      * Like getTarget(), but the box is moved ahead by the measured speed for the time since it was
-     * detected (at most predictHorizonMs, damped by predictGain, shift capped). Used for the motion
+     * detected (at most predictHorizonMs, damped by predictGain, shift capped). Only the POSITION moves; the
+     * size stays the detected size (predictSize: false) so the "close enough" stop uses the real height. Used for the motion
      * DECISION only; lastSeenMs stays the real detection time, so the age checks stay honest.
      * Without a known speed, or while the target is not matched, it is the same as getTarget().
      * `rawBox` is the last detected box.
@@ -639,7 +644,7 @@ export function createPersonTracker(options = {}) {
       const maxShift = frame.width * config.predictMaxShiftRatio;
       const dx = clamp(v.vx * dt * gain, -maxShift, maxShift);
       const dy = clamp(v.vy * dt * gain, -maxShift, maxShift);
-      const scale = clamp(1 + (v.vh * dt * gain) / raw.height, 0.7, 1.4);
+      const scale = config.predictSize ? clamp(1 + (v.vh * dt * gain) / raw.height, 0.7, 1.4) : 1;
       const width = raw.width * scale;
       const height = raw.height * scale;
 

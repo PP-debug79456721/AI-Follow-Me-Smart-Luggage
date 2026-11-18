@@ -45,10 +45,10 @@ constexpr float kTurnInnerFraction = 0.60f;   // inner wheel duty = kDriveDuty *
 // The result is still clamped to kDutyMax.
 constexpr float kLeftGain = 1.00f;
 constexpr float kRightGain = 1.10f;           // bench: right wheel slower even with wheels lifted (1.20 overshot)
-// Duty change per second when speeding up (soft start). 2.5 reached 0.60 in 0.24 s, which felt like a jerk
-// on every start. 1.0 reaches kDriveDuty in 0.6 s. Raise it (1.5) if the luggage feels sluggish, lower (0.7)
-// if it still jerks. Slowing down and STOP stay immediate.
-constexpr float kRampPerSecond = 1.0f;
+// Duty change per second when speeding up (soft start). 2.5 reached 0.60 in 0.24 s (a jerk on every start),
+// 1.0 in 0.6 s still felt abrupt on the bench, 0.6 reaches kDriveDuty in 1.0 s. Lower (0.4-0.5) = even gentler,
+// higher (1.0) = brisker. Slowing down and STOP stay immediate.
+constexpr float kRampPerSecond = 0.6f;
 constexpr uint32_t kPwmFreqHz = 5000;
 constexpr uint8_t kPwmBits = 8;
 constexpr uint32_t kRelaySettleMs = 250;      // relay on -> wait before enabling the drivers

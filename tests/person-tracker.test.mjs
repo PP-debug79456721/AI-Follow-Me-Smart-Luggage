@@ -451,14 +451,27 @@ test("PR4 no speed after a long gap, after the target was not matched, or after 
   assert.deepEqual(jump.getPredictedTarget(250).box, jump.getTarget().box);
 });
 
-test("PR5 a growing box (owner walking toward the camera) is predicted larger, within 0.7x-1.4x", () => {
+test("PR5 the predicted box keeps the detected SIZE (the close-enough stop must use the real height)", () => {
   const tracker = trackerWithSelection(person(100, 100, 160, 300), 0);
   tracker.update([person(95, 90, 170, 320)], 150, W, H);
   tracker.update([person(90, 80, 180, 340)], 300, W, H);
   const raw = tracker.getTarget().box;
   const predicted = tracker.getPredictedTarget(300 + 200).box;
+  assert.equal(predicted.height, raw.height);
+  assert.equal(predicted.width, raw.width);
+});
+
+test("PR5b with predictSize on a growing box is predicted larger, within 0.7x-1.4x, aspect ratio kept", () => {
+  const tracker = createPersonTracker({ predictSize: true });
+  tracker.reset();
+  tracker.update([person(100, 100, 160, 300)], 0, W, H);
+  tracker.selectAt(180, 250, 0);
+  tracker.update([person(95, 90, 170, 320)], 150, W, H);
+  tracker.update([person(90, 80, 180, 340)], 300, W, H);
+  const raw = tracker.getTarget().box;
+  const predicted = tracker.getPredictedTarget(300 + 200).box;
   assert.ok(predicted.height > raw.height && predicted.height <= raw.height * 1.4);
-  assert.ok(Math.abs(predicted.width / predicted.height - raw.width / raw.height) < 1e-9, "aspect ratio kept");
+  assert.ok(Math.abs(predicted.width / predicted.height - raw.width / raw.height) < 1e-9);
 });
 
 test("PR6 nothing selected gives null", () => {

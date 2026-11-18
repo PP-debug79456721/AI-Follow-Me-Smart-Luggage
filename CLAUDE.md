@@ -210,7 +210,7 @@ before Upload. Small changes are safer made inside the IDE.
   Wi-Fi drop the board keeps the old session for sessionLivenessMs (1200) and answers BUSY meanwhile (the page waits 4 s and retries) - a
   BUSY that lasts longer means a SECOND page/tab is connected. The ESP32 card now shows `stops: <reason> xN ... BUSY xN` (esp32-link
   `stopEntries`, entries per reason, DECISION_STOP left out) so the next test shows which gate causes stop-and-go. (2) Jerky start:
-  firmware `kRampPerSecond` 2.5 -> 1.0 (0.60 duty in 0.6 s; slowing/STOP still immediate; NOT yet tried on the board). (3) Camera fps:
+  firmware `kRampPerSecond` 2.5 -> 1.0 (worked on the board but still abrupt) -> 0.6 (0.60 duty in 1.0 s; slowing/STOP still immediate; the 0.6 value NOT yet tried). (3) Camera fps:
   lite capture asks `frameRate ideal 30 / max 30` (12 let the phone pick a low-light range < 10 fps). (4) Person detection gap: with the
   worker the period is 150 ms and the next request is chained to the previous result (`scheduleNextWorkerRequest`) instead of waiting for
   the 100 ms frame gate; the 500 ms shown before FOLLOW in lite mode is the IDLE period, not a fault. (5) Dropouts: DEMO mode now also
@@ -219,7 +219,8 @@ before Upload. Small changes are safer made inside the IDE.
 - **Motion prediction for the decision (2026-11-18, `?predict=0` turns it off)**: `person-tracker.js` keeps the owner's speed between
   matched detections (`estimateVelocity`: no speed after a gap > 600 ms, an unmatched step or a jump > 35 % of the frame) and
   `getPredictedTarget(now)` moves the box ahead by speed x time since the detection (<= 250 ms, gain 0.7, shift <= 12 % of the frame,
-  never out of the frame). `ai-owner.js publishMotion` feeds the decision with it; `lastSeenMs` stays the real detection time, so the
+  never out of the frame; ONLY the position moves, the size stays the detected size (`predictSize` false, since 2026-11-18 evening: predicted growth made the
+  95 % close-enough stop fire early). `ai-owner.js publishMotion` feeds the decision with it; `lastSeenMs` stays the real detection time, so the
   link's age checks are unchanged. Unit tests PR1-PR7 in `tests/person-tracker.test.mjs`. NOT yet tried on the bench: if the luggage
   overshoots turns or oscillates, open the page with `?predict=0` to compare.
 - **Low-fps hint (2026-11-18)**: `js/fps-hint.js` (tests/fps-hint.test.mjs): after 5 one-second readings below 10 fps the camera overlay
