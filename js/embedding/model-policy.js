@@ -70,10 +70,12 @@ const FILE_PATTERN = /^models(?:\/[A-Za-z0-9_-]+)+\.onnx$/;
 
 /*
  * "development" only when explicitly asked for (?modelMode=development)
- * on a development host: this machine or a GitHub Codespaces forwarded
- * port. Everything else is "production".
+ * on a development host: this machine, a GitHub Codespaces forwarded
+ * port, or a host named in extraHosts (the education deployment, see
+ * js/deploy-config.js; exact host name match only). Everything else is
+ * "production".
  */
-export function resolveModelUseMode(location) {
+export function resolveModelUseMode(location, extraHosts = []) {
 
   let params;
   try {
@@ -91,7 +93,9 @@ export function resolveModelUseMode(location) {
     host === "127.0.0.1" ||
     host === "[::1]" ||
     host === "::1" ||
-    host.endsWith(".app.github.dev");
+    host.endsWith(".app.github.dev") ||
+    (host !== "" && Array.isArray(extraHosts) &&
+      extraHosts.some(entry => typeof entry === "string" && entry.toLowerCase() === host));
 
   return developmentHost ? "development" : "production";
 }

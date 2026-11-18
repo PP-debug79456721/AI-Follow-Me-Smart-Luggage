@@ -6,7 +6,7 @@
   <meta name="viewport"
         content="width=device-width, initial-scale=1">
 
-  <meta name="theme-color" content="#101820">
+  <meta name="theme-color" content="#16202B">
 
   <title>AI Follow-Me Smart Luggage</title>
 
@@ -16,9 +16,19 @@
 <body>
 
   <header class="header">
-    <div>
-      <h1>AI FOLLOW-ME</h1>
-      <p>SMART AUTONOMOUS LUGGAGE</p>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 9V4h8v5"/>
+          <rect x="7" y="9" width="18" height="17" rx="2.5"/>
+          <path d="M13 14v7M19 14v7"/>
+          <path d="M11 29v-3M21 29v-3"/>
+        </svg>
+      </span>
+      <div>
+        <h1>AI FOLLOW-ME</h1>
+        <p>SMART AUTONOMOUS LUGGAGE</p>
+      </div>
     </div>
 
     <span class="system-badge" id="systemStatus">
@@ -92,48 +102,95 @@
       </div>
     </section>
 
-<section class="registration-panel">
 
-  <h2>SAVED OWNER DATA (PHASE A+B)</h2>
-  <p class="registration-description">
-    Phase C ไม่บันทึกภาพหรือข้อมูลใบหน้าลงเครื่อง และไม่มีการลงทะเบียนเจ้าของ
-    ส่วนนี้แสดงข้อมูลที่เวอร์ชันก่อนอาจบันทึกไว้ในเบราว์เซอร์นี้
-    (ภาพทั้งสองแบบเป็นภาพเต็มเฟรมจากกล้อง อาจมีใบหน้า)
-    ระบบไม่ลบให้อัตโนมัติ
-  </p>
+    <section class="status-panel">
 
-  <div class="sample-count">
-    <div>
-      <span>FACE IMAGES</span>
-      <strong id="legacyFaceCount">--</strong>
-    </div>
+      <div class="esp-panel" id="espPanel">
 
-    <div>
-      <span>RE-ID IMAGES</span>
-      <strong id="legacyReidCount">--</strong>
-    </div>
+        <div class="panel-heading">
+          <h2>ESP32 LINK</h2>
+          <span id="espLinkState">DISCONNECTED</span>
+        </div>
 
-    <div>
-      <span>EMBEDDINGS</span>
-      <strong id="legacyEmbeddingCount">--</strong>
-    </div>
-  </div>
+        <label class="esp-label" for="espUrl">Link URL (WebSocket or Bluetooth)</label>
+        <input id="espUrl"
+               type="text"
+               inputmode="url"
+               autocomplete="off"
+               autocapitalize="off"
+               spellcheck="false"
+               placeholder="ws://&lt;ESP32 address&gt;/ws  or  ble://  or  mock://device">
 
-  <p id="legacyDataMessage" role="status">
-    กำลังตรวจข้อมูลเดิม...
-  </p>
+        <div class="controls">
+          <button id="espConnectBtn">CONNECT</button>
+          <button id="espDisconnectBtn" disabled>DISCONNECT</button>
+        </div>
 
-  <button id="legacyDeleteBtn" class="danger-button" disabled>
-    DELETE SAVED OWNER DATA
-  </button>
+        <div class="controls">
+          <button id="espFollowBtn" disabled>ARM / FOLLOW</button>
+          <button id="espEstopBtn" class="estop">ESTOP</button>
+        </div>
 
-  <p class="registration-description">
-    ลบเองได้อีกทาง: ในการตั้งค่าเบราว์เซอร์ ให้ลบข้อมูลเว็บไซต์ (site data / storage)
-    ของหน้านี้ เช่น Chrome บน Android: เมนู &#8942; &gt; Settings &gt; Site settings
-    &gt; All sites &gt; เลือกเว็บไซต์นี้ &gt; Delete data
-  </p>
+        <button id="espClearEstopBtn" class="esp-clear" hidden>CLEAR ESTOP</button>
 
-</section>
+        <p class="esp-note" id="espNote">
+          Movement stays STOP until the link is established and ARM / FOLLOW
+          is pressed. Any link loss, hidden page or ESTOP switches FOLLOW off.
+        </p>
+
+        <pre class="esp-detail" id="espDetail">not connected</pre>
+
+      </div>
+
+      <h2>SYSTEM DASHBOARD</h2>
+
+      <div class="status-grid">
+        
+        <div class="status-card">
+          <span>FACE DETECTION</span>
+          <strong id="faceAIStatus">NOT RUNNING</strong>
+        </div>
+
+        <div class="status-card">
+          <span>PERSON DETECTION</span>
+          <strong id="personAIStatus">NOT RUNNING</strong>
+        </div>
+        <div class="status-card">
+          <span>OWNER</span>
+          <strong id="ownerStatus">ยังไม่ยืนยันตัวตน</strong>
+        </div>
+
+        <div class="status-card">
+          <span>OBSTACLE</span>
+          <strong id="obstacleStatus">NOT ANALYZED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>DISTANCE</span>
+          <strong id="distanceStatus">NO SENSOR</strong>
+        </div>
+
+        <div class="status-card">
+          <span>AI MODEL</span>
+          <strong id="aiStatus">NOT LOADED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>ESP32</span>
+          <strong id="espStatus">DISCONNECTED</strong>
+        </div>
+
+        <div class="status-card">
+          <span>MOTOR COMMAND</span>
+          <strong id="motorStatus">STOP</strong>
+        </div>
+
+      </div>
+
+
+    </section>
+
+    <div class="tools">
 
     <section class="readiness-panel">
 
@@ -213,91 +270,50 @@
 
     </section>
 
-    <section class="status-panel">
+    <section class="registration-panel">
 
-      <h2>SYSTEM DASHBOARD</h2>
+      <h2>SAVED OWNER DATA (PHASE A+B)</h2>
+      <p class="registration-description">
+        Phase C ไม่บันทึกภาพหรือข้อมูลใบหน้าลงเครื่อง และไม่มีการลงทะเบียนเจ้าของ
+        ส่วนนี้แสดงข้อมูลที่เวอร์ชันก่อนอาจบันทึกไว้ในเบราว์เซอร์นี้
+        (ภาพทั้งสองแบบเป็นภาพเต็มเฟรมจากกล้อง อาจมีใบหน้า)
+        ระบบไม่ลบให้อัตโนมัติ
+      </p>
 
-      <div class="status-grid">
-        
-        <div class="status-card">
-          <span>FACE DETECTION</span>
-          <strong id="faceAIStatus">NOT RUNNING</strong>
+      <div class="sample-count">
+        <div>
+          <span>FACE IMAGES</span>
+          <strong id="legacyFaceCount">--</strong>
         </div>
 
-        <div class="status-card">
-          <span>PERSON DETECTION</span>
-          <strong id="personAIStatus">NOT RUNNING</strong>
-        </div>
-        <div class="status-card">
-          <span>OWNER</span>
-          <strong id="ownerStatus">ยังไม่ยืนยันตัวตน</strong>
+        <div>
+          <span>RE-ID IMAGES</span>
+          <strong id="legacyReidCount">--</strong>
         </div>
 
-        <div class="status-card">
-          <span>OBSTACLE</span>
-          <strong id="obstacleStatus">NOT ANALYZED</strong>
+        <div>
+          <span>EMBEDDINGS</span>
+          <strong id="legacyEmbeddingCount">--</strong>
         </div>
-
-        <div class="status-card">
-          <span>DISTANCE</span>
-          <strong id="distanceStatus">NO SENSOR</strong>
-        </div>
-
-        <div class="status-card">
-          <span>AI MODEL</span>
-          <strong id="aiStatus">NOT LOADED</strong>
-        </div>
-
-        <div class="status-card">
-          <span>ESP32</span>
-          <strong id="espStatus">DISCONNECTED</strong>
-        </div>
-
-        <div class="status-card">
-          <span>MOTOR COMMAND</span>
-          <strong id="motorStatus">STOP</strong>
-        </div>
-
       </div>
 
-      <div class="esp-panel" id="espPanel">
+      <p id="legacyDataMessage" role="status">
+        กำลังตรวจข้อมูลเดิม...
+      </p>
 
-        <div class="panel-heading">
-          <h2>ESP32 LINK</h2>
-          <span id="espLinkState">DISCONNECTED</span>
-        </div>
+      <button id="legacyDeleteBtn" class="danger-button" disabled>
+        DELETE SAVED OWNER DATA
+      </button>
 
-        <label class="esp-label" for="espUrl">Link URL (WebSocket or Bluetooth)</label>
-        <input id="espUrl"
-               type="text"
-               inputmode="url"
-               autocomplete="off"
-               autocapitalize="off"
-               spellcheck="false"
-               placeholder="ws://&lt;ESP32 address&gt;/ws  or  ble://  or  mock://device">
-
-        <div class="controls">
-          <button id="espConnectBtn">CONNECT</button>
-          <button id="espDisconnectBtn" disabled>DISCONNECT</button>
-        </div>
-
-        <div class="controls">
-          <button id="espFollowBtn" disabled>ARM / FOLLOW</button>
-          <button id="espEstopBtn" class="estop">ESTOP</button>
-        </div>
-
-        <button id="espClearEstopBtn" class="esp-clear" hidden>CLEAR ESTOP</button>
-
-        <p class="esp-note" id="espNote">
-          Movement stays STOP until the link is established and ARM / FOLLOW
-          is pressed. Any link loss, hidden page or ESTOP switches FOLLOW off.
-        </p>
-
-        <pre class="esp-detail" id="espDetail">not connected</pre>
-
-      </div>
+      <p class="registration-description">
+        ลบเองได้อีกทาง: ในการตั้งค่าเบราว์เซอร์ ให้ลบข้อมูลเว็บไซต์ (site data / storage)
+        ของหน้านี้ เช่น Chrome บน Android: เมนู &#8942; &gt; Settings &gt; Site settings
+        &gt; All sites &gt; เลือกเว็บไซต์นี้ &gt; Delete data
+      </p>
 
     </section>
+
+    </div>
 
   </main>
 

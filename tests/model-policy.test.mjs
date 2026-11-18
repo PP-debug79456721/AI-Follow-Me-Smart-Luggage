@@ -294,3 +294,25 @@ test("development only with ?modelMode=development on a development host", () =>
   assert.equal(at("localhost", "?modelMode=development%00"), "production");
   assert.equal(resolveModelUseMode(undefined), "production");
 });
+
+test("education host: development mode only on an exactly listed host, and still only when asked", () => {
+  const edu = ["yourname.github.io"];
+  const at = (hostname, search, hosts = edu) => resolveModelUseMode({ hostname, search }, hosts);
+  assert.equal(at("yourname.github.io", "?modelMode=development"), "development");
+  assert.equal(at("YourName.GitHub.io", "?modelMode=development"), "development");
+  assert.equal(at("yourname.github.io", ""), "production");
+  assert.equal(at("yourname.github.io", "?modelMode=dev"), "production");
+  assert.equal(at("other.github.io", "?modelMode=development"), "production");
+  assert.equal(at("yourname.github.io.evil.com", "?modelMode=development"), "production");
+  assert.equal(at("sub.yourname.github.io", "?modelMode=development"), "production");
+  assert.equal(at("evil-yourname.github.io", "?modelMode=development"), "production");
+  // Without a list (the default) nothing new is allowed.
+  assert.equal(at("yourname.github.io", "?modelMode=development", []), "production");
+  assert.equal(resolveModelUseMode({ hostname: "yourname.github.io", search: "?modelMode=development" }), "production");
+  // Malformed lists never allow anything, and an empty host never matches.
+  assert.equal(at("yourname.github.io", "?modelMode=development", "yourname.github.io"), "production");
+  assert.equal(at("yourname.github.io", "?modelMode=development", [null, 5, ""]), "production");
+  assert.equal(at("", "?modelMode=development", [""]), "production");
+  // localhost keeps working whatever the list says.
+  assert.equal(at("localhost", "?modelMode=development", []), "development");
+});

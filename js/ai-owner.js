@@ -39,6 +39,10 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
 import { LITE_MODE, personIntervalFor } from "./lite-mode.js";
 
+// Pure, no external imports: where the owner features may run.
+import { EDUCATION_HOSTS, ownerFeatureSet } from "./deploy-config.js";
+import { resolveModelUseMode } from "./embedding/model-policy.js";
+
 const MEDIAPIPE_VERSION = "0.10.35";
 
 const MEDIAPIPE_BUNDLE_URL =
@@ -274,13 +278,26 @@ function cameraStalled() {
   return lastFrame !== null && performance.now() - lastFrame > FRAME_STALL_MS;
 }
 
-// Owner recognition (bench): ONLY on this computer (localhost / 127.0.0.1),
-// never in lite mode (it needs face detection). The SFace model itself still
-// loads only through model-policy.js, i.e. with ?modelMode=development
-// (DEVELOPMENT_ONLY licence). Clothing re-acquire needs no model.
-const OWNER_HOST = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(location.hostname);
-const OWNER_FEATURES = OWNER_HOST && !LITE_MODE;
-const LOAD_RECOGNITION_MODELS = OWNER_FEATURES;
+// Owner recognition: on this computer (localhost / 127.0.0.1) and on the
+// education host named in deploy-config.js (EDUCATION_HOSTS, empty by default).
+//   OWNER_HOST     clothing album, no model; also in lite mode.
+//   FACE_FEATURES  SFace; never in lite mode (it needs face detection).
+//   REID_FEATURES  OSNet Re-ID; in lite mode (phones) only when the page was
+//                  opened with ?modelMode=development, and off with ?reid=0.
+// The models themselves still load only through model-policy.js, i.e. with
+// ?modelMode=development (DEVELOPMENT_ONLY licence).
+const OWNER_SET = ownerFeatureSet({
+  hostname: location.hostname,
+  lite: LITE_MODE,
+  modelsRequested: resolveModelUseMode(location, EDUCATION_HOSTS) === "development",
+  search: location.search
+});
+const OWNER_HOST = OWNER_SET.clothes;
+const FACE_FEATURES = OWNER_SET.face;
+const REID_FEATURES = OWNER_SET.reid;
+const LOAD_RECOGNITION_MODELS = FACE_FEATURES || REID_FEATURES;
+// Lite mode never loads the 38.7 MB face model.
+const RECOGNITION_MODEL_KEYS = [FACE_FEATURES && "face", REID_FEATURES && "reid"].filter(Boolean);
 
 // --------------------------------------------------
 // Camera-covered hint (for the LOST reason text only)
@@ -639,7 +656,8 @@ function loadEmbeddingModels() {
 
   if (embeddingPromise) return embeddingPromise;
 
-  setReady(readyFaceModel, "LOADING", "warn");
+  if (FACE_FEATURES) setReady(readyFaceModel, "LOADING", "warn");
+  else setReady(readyFaceModel, "OFF (LITE MODE)", "");
 
   const attempt = (async () => {
 
@@ -649,15 +667,15 @@ function loadEmbeddingModels() {
         await import("./embedding/owner-embedding.js");
 
       const result = await initializeEmbeddingModels({
-        onStatus: showModelStatus
+        onStatus: showModelStatus,
+        only: RECOGNITION_MODEL_KEYS
       });
 
-      // Show the final state of both models.
-      showModelStatus("face", result.face);
-      showModelStatus("reid", result.reid);
+      // Show the final state of the models this page uses.
+      for (const key of RECOGNITION_MODEL_KEYS) showModelStatus(key, result[key]);
 
-      // Allow a retry on the next start when the face model failed.
-      if (result.face.state !== "SESSION_LOADED") {
+      // Allow a retry on the next start when a wanted model failed.
+      if (RECOGNITION_MODEL_KEYS.some(key => result[key].state !== "SESSION_LOADED")) {
         embeddingPromise = null;
       }
 
@@ -667,7 +685,7 @@ function loadEmbeddingModels() {
       // (for example the ONNX Runtime download failed).
       console.error("Embedding models not available:", error);
 
-      setReady(readyFaceModel, "LOAD FAILED (RUNTIME)", "bad");
+      setReady(FACE_FEATURES ? readyFaceModel : readyReidModel, "LOAD FAILED (RUNTIME)", "bad");
 
       embeddingPromise = null;
     }
@@ -976,7 +994,7 @@ async function getFaceModule() {
 }
 
 async function faceModelReady() {
-  if (!OWNER_FEATURES) return false;
+  if (!FACE_FEATURES) return false;
   try {
     const { owner } = await getFaceModule();
     return owner.getEmbeddingModelStatus().face?.state === "SESSION_LOADED";
@@ -988,7 +1006,7 @@ async function faceModelReady() {
 /* True when the OSNet Re-ID session is loaded (development mode, file present). */
 let reidReadyCache = false;
 async function reidModelReady() {
-  if (!OWNER_FEATURES) return false;
+  if (!REID_FEATURES) return false;
   try {
     const { owner } = await getFaceModule();
     reidReadyCache = owner.getEmbeddingModelStatus().reid?.state === "SESSION_LOADED";
@@ -1008,7 +1026,7 @@ async function reidVector(box) {
 
 /* Learn the followed person (TRACKING, alone) into the Re-ID album. */
 function reidLearn(timestamp, box, force = false, reset = false) {
-  if (!OWNER_FEATURES || reidBusy) return;
+  if (!REID_FEATURES || reidBusy) return;
   reidBusy = true;
   (async () => {
     try {
@@ -1069,7 +1087,7 @@ function ownerStatusText() {
   if (enrolRemaining > 0) return `กำลังลงทะเบียนหน้า… เหลือ ${enrolRemaining}`;
   const score = Number.isFinite(ownerLastScore) ? ` ${ownerLastScore.toFixed(2)}` : "";
   const parts = [];
-  if (OWNER_FEATURES) {
+  if (FACE_FEATURES) {
     parts.push(ownerFaces.length ? `หน้าเจ้าของ ${ownerFaces.length} ภาพ` : "ยังไม่ลงทะเบียนหน้า");
   }
   if (ownerAlbum.length === 0) parts.push("ยังไม่จำเสื้อผ้า");
@@ -1134,7 +1152,7 @@ function ownerAfterPersons(timestamp) {
   if (target && target.state === "TRACKING" && target.matched &&
       timestamp - lastSignatureAt >= SIGNATURE_REFRESH_MS) {
     const alone = lastPersonBoxes.every(b => boxIoU(b, target.box) > 0.9 || boxIoU(b, target.box) < 0.05);
-    if (alone && timestamp - lastReidLearnAt >= REID_LEARN_MS && (reidReadyCache || OWNER_FEATURES)) {
+    if (alone && timestamp - lastReidLearnAt >= REID_LEARN_MS && (reidReadyCache || REID_FEATURES)) {
       lastReidLearnAt = timestamp;
       reidLearn(timestamp, target.box);
     }
@@ -1192,7 +1210,7 @@ function ownerAfterPersons(timestamp) {
 /* Called right after face detection, with the faces of THIS frame. */
 function ownerAfterFaces(faceList, timestamp, width, height) {
 
-  if (!OWNER_FEATURES || faceRoundBusy) return;
+  if (!FACE_FEATURES || faceRoundBusy) return;
 
   const enrolling = enrolRemaining > 0;
   const lookingForOwner = !enrolling && !ownerAutoPaused && ownerFaces.length > 0 && !followingSomeone();
@@ -1268,7 +1286,7 @@ function ownerAfterFaces(faceList, timestamp, width, height) {
 
 /* UI: capture ENROL_SAMPLES faces of the person currently followed. */
 export function startOwnerEnrolment() {
-  if (!OWNER_FEATURES) return { ok: false, reason: "NOT_LOCALHOST" };
+  if (!FACE_FEATURES) return { ok: false, reason: "NOT_LOCALHOST" };
   const target = tracker.getTarget();
   if (!target || target.state !== "TRACKING") {
     ownerLastEvent = "แตะเลือกตัวเองก่อน (ต้องขึ้น TRACKING)";
@@ -1352,7 +1370,7 @@ export function findOwner() {
 }
 
 export function ownerFeaturesEnabled() {
-  return OWNER_FEATURES;
+  return FACE_FEATURES;
 }
 
 export function ownerClothesEnabled() {

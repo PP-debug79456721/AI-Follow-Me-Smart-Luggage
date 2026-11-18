@@ -19,6 +19,8 @@ import {
   resolveModelUseMode
 } from "./model-policy.js";
 
+import { EDUCATION_HOSTS } from "../deploy-config.js";
+
 // --------------------------------------------------
 // Model Configuration
 // --------------------------------------------------
@@ -112,8 +114,12 @@ let initializationPromise = null;
  * Fail-closed: model-policy.js decides from the manifest BEFORE any model
  * file is requested. The mode (production / development) comes from the
  * page address, never from the caller, so code cannot switch it.
+ *
+ * only: optional list of model keys to load ("face", "reid"). Lite mode
+ * (phones) loads only "reid": the face model is 38.7 MB and unused there.
+ * A key left out keeps its current status and nothing is requested for it.
  */
-export function initializeEmbeddingModels({ onStatus } = {}) {
+export function initializeEmbeddingModels({ onStatus, only } = {}) {
 
   if (initializationPromise) {
     return initializationPromise;
@@ -123,7 +129,7 @@ export function initializeEmbeddingModels({ onStatus } = {}) {
 
     try {
 
-      const mode = resolveModelUseMode(globalThis.location);
+      const mode = resolveModelUseMode(globalThis.location, EDUCATION_HOSTS);
       const manifest = await loadManifest();
 
       const loaders = {
@@ -132,6 +138,8 @@ export function initializeEmbeddingModels({ onStatus } = {}) {
       };
 
       for (const key of ["face", "reid"]) {
+
+        if (Array.isArray(only) && !only.includes(key)) continue;
 
         if (modelStatus[key].state === "SESSION_LOADED") continue;
 
