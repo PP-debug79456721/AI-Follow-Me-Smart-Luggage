@@ -12,7 +12,10 @@ import {
   addOwnerClothesView,
   startOwnerEnrolment,
   findOwner,
-  forgetOwner
+  forgetOwner,
+  getOwnerProfiles,
+  setActiveOwnerProfile,
+  renameOwnerProfile
 } from "./ai-owner.js";
 import { createEsp32Session } from "./esp32-session.js";
 import { LITE_MODE } from "./lite-mode.js";
@@ -459,8 +462,37 @@ if (ownerClothesEnabled()) {
   });
   document.getElementById("ownerFindBtn").addEventListener("click", () => findOwner());
   document.getElementById("ownerForgetBtn").addEventListener("click", () => {
-    if (confirm("ลบหน้าและเสื้อผ้าของเจ้าของที่จำไว้?")) forgetOwner();
+    const active = getOwnerProfiles().find(p => p.active);
+    if (confirm(`ลบหน้าและเสื้อผ้าของ ${active ? active.name : "เจ้าของ"} ที่จำไว้?`)) forgetOwner();
   });
+
+  // Up to 3 users; only the selected one is searched for and followed.
+  const profileSelect = document.getElementById("ownerProfileSelect");
+  const profileName = document.getElementById("ownerNameInput");
+  const renderProfiles = () => {
+    const list = getOwnerProfiles();
+    profileSelect.replaceChildren(...list.map(p => {
+      const option = document.createElement("option");
+      option.value = String(p.index);
+      option.textContent = `${p.name} · หน้า ${p.faces} · Re-ID ${p.reid} · เสื้อ ${p.cloth}`;
+      option.selected = p.active;
+      return option;
+    }));
+    const active = list.find(p => p.active);
+    if (active && document.activeElement !== profileName) profileName.value = active.name;
+  };
+  profileSelect.addEventListener("change", () => {
+    setActiveOwnerProfile(Number(profileSelect.value));
+    renderProfiles();
+  });
+  document.getElementById("ownerRenameBtn").addEventListener("click", () => {
+    const active = getOwnerProfiles().find(p => p.active);
+    if (active) renameOwnerProfile(active.index, profileName.value);
+    profileName.blur();
+    renderProfiles();
+  });
+  setInterval(() => { if (document.activeElement !== profileSelect) renderProfiles(); }, 1000);
+  renderProfiles();
 }
 
 initLegacyOwnerData();

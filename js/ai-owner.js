@@ -43,6 +43,12 @@ import { LITE_MODE, personIntervalFor } from "./lite-mode.js";
 import { EDUCATION_HOSTS, ownerFeatureSet } from "./deploy-config.js";
 import { resolveModelUseMode } from "./embedding/model-policy.js";
 
+// Pure: user profile keys, names and the "another user" rule.
+import {
+  PROFILE_STORE, PROFILE_COUNT, profileKey, cleanProfileName,
+  parseProfileMeta, bestProfileScore, looksLikeOtherProfile
+} from "./owner-profiles.js";
+
 const MEDIAPIPE_VERSION = "0.10.35";
 
 const MEDIAPIPE_BUNDLE_URL =
@@ -842,6 +848,8 @@ export function startOwnerAI() {
   personGapMs = null;
 
   tracker.reset();
+  lockedSelectionId = null;
+  otherProfileLabels = [];
   lastFaces = [];
   notifyTracking(true);
 
@@ -874,6 +882,26 @@ const SIGNATURE_REFRESH_MS = 500;
 const SIGNATURE_W = 24;
 const SIGNATURE_H = 48;
 
+// Up to 3 user profiles; ONE is active. Only the active profile is searched
+// for, auto-selected and learned. Profile 1 keeps the original keys (no
+// migration); profiles 2-3 use "owner.p2." / "owner.p3." keys.
+// Keys, names and the "another user" rule: js/owner-profiles.js.
+const OTHER_LABEL_MS = 2000;
+function loadProfileMeta() {
+  let text = null;
+  try { text = localStorage.getItem(PROFILE_STORE); } catch { /* blocked: defaults */ }
+  return parseProfileMeta(text);
+}
+function saveProfileMeta() {
+  try { localStorage.setItem(PROFILE_STORE, JSON.stringify(profileMeta)); } catch { /* storage full/blocked */ }
+}
+let profileMeta = loadProfileMeta();
+let otherProfiles = [];          // [{ index, name, faces, reid, cloth }] of the NON-active profiles
+let otherProfileLabels = [];     // [{ box, name, at }] faces/bodies recognised as a non-active profile
+let lockedSelectionId = null;    // tracker id chosen by owner recognition for the active profile
+let lockedProfile = -1;
+let lockedHow = "";             // "Re-ID" | "ใบหน้า" | "เสื้อผ้า": what recognised the locked box
+
 let ownerFaces = loadOwnerFaces();
 let ownerAlbum = loadClothAlbum();       // [view0 (REMEMBER CLOTHES), learned views...]
 let lastClothAddAt = 0;
@@ -891,7 +919,7 @@ let ownerLastEvent = "";
 let enrolRemaining = 0;
 let faceRoundBusy = false;
 let lastFaceRoundAt = 0;
-let lastSignatureAt = 0;
+let lastIdentityCheckAt = 0;
 let lastPersonBoxes = [];
 let lastPersonAt = 0;
 let faceModule = null;
@@ -925,9 +953,9 @@ function resetOwnerAgreements() {
   reidAgreement.reset();
 }
 
-function loadOwnerFaces() {
+function loadOwnerFaces(i = profileMeta.active) {
   try {
-    const raw = JSON.parse(localStorage.getItem(OWNER_STORE) || "[]");
+    const raw = JSON.parse(localStorage.getItem(profileKey(OWNER_STORE, i)) || "[]");
     return Array.isArray(raw)
       ? raw.filter(v => Array.isArray(v) && v.length === 128 && v.every(Number.isFinite))
       : [];
@@ -936,9 +964,9 @@ function loadOwnerFaces() {
   }
 }
 
-function loadReidAlbum() {
+function loadReidAlbum(i = profileMeta.active) {
   try {
-    const raw = JSON.parse(localStorage.getItem(REID_STORE) || "[]");
+    const raw = JSON.parse(localStorage.getItem(profileKey(REID_STORE, i)) || "[]");
     return Array.isArray(raw)
       ? raw.filter(v => Array.isArray(v) && v.length === 512 && v.every(Number.isFinite))
           .slice(0, REID_ALBUM_DEFAULTS.maxViews)
@@ -950,15 +978,16 @@ function loadReidAlbum() {
 
 function saveReidAlbum() {
   try {
-    if (reidAlbum.length === 0) localStorage.removeItem(REID_STORE);
-    else localStorage.setItem(REID_STORE, JSON.stringify(reidAlbum));
+    const key = profileKey(REID_STORE, profileMeta.active);
+    if (reidAlbum.length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(reidAlbum));
   } catch { /* storage full/blocked */ }
 }
 
-function loadClothAlbum() {
+function loadClothAlbum(i = profileMeta.active) {
   try {
     localStorage.removeItem("owner.cloth.v1");   // v1 was saved unreadably (typed arrays); drop it
-    const raw = JSON.parse(localStorage.getItem(CLOTH_STORE) || "[]");
+    const raw = JSON.parse(localStorage.getItem(profileKey(CLOTH_STORE, i)) || "[]");
     if (!Array.isArray(raw)) return [];
     return raw
       .filter(v => v && Array.isArray(v.upper) && Array.isArray(v.lower) &&
@@ -971,14 +1000,50 @@ function loadClothAlbum() {
 
 function saveClothAlbum() {
   try {
-    if (ownerAlbum.length === 0) { localStorage.removeItem(CLOTH_STORE); return; }
+    const key = profileKey(CLOTH_STORE, profileMeta.active);
+    if (ownerAlbum.length === 0) { localStorage.removeItem(key); return; }
     const plain = ownerAlbum.map(v => ({ upper: Array.from(v.upper), lower: Array.from(v.lower) }));
-    localStorage.setItem(CLOTH_STORE, JSON.stringify(plain));
+    localStorage.setItem(key, JSON.stringify(plain));
   } catch { /* storage full/blocked */ }
 }
 
 function saveOwnerFaces() {
-  try { localStorage.setItem(OWNER_STORE, JSON.stringify(ownerFaces)); } catch { /* storage full/blocked */ }
+  try { localStorage.setItem(profileKey(OWNER_STORE, profileMeta.active), JSON.stringify(ownerFaces)); } catch { /* storage full/blocked */ }
+}
+
+/* The non-active profiles, read-only: used only to REFUSE a match that looks
+   more like another registered user, and to label that person's box. */
+function refreshOtherProfiles() {
+  otherProfiles = [];
+  for (let i = 0; i < PROFILE_COUNT; i++) {
+    if (i === profileMeta.active) continue;
+    otherProfiles.push({
+      index: i, name: profileMeta.names[i],
+      faces: loadOwnerFaces(i), reid: loadReidAlbum(i), cloth: loadClothAlbum(i).length
+    });
+  }
+}
+refreshOtherProfiles();
+
+/* Best { name, score } of a non-active profile, or null. */
+function bestOtherProfile(scoreOf) {
+  return bestProfileScore(otherProfiles, scoreOf);
+}
+
+function noteOtherProfile(box, name, at) {
+  otherProfileLabels = otherProfileLabels
+    .filter(l => at - l.at < OTHER_LABEL_MS && boxIoU(l.box, box) < 0.3);
+  otherProfileLabels.push({ box, name, at });
+}
+
+function otherProfileLabelFor(box, now) {
+  const hit = otherProfileLabels.find(l => now - l.at < OTHER_LABEL_MS && boxIoU(l.box, box) >= 0.3);
+  return hit ? hit.name : null;
+}
+
+function lockedOwnerName(id) {
+  return id !== null && id === lockedSelectionId && lockedProfile === profileMeta.active
+    ? profileMeta.names[lockedProfile] : null;
 }
 
 async function getFaceModule() {
@@ -1065,7 +1130,15 @@ function reidSearch(timestamp) {
     try {
       const candidates = [];
       for (const b of boxes) {
-        candidates.push({ box: b, score: vectorAlbumScore(reidAlbum, await reidVector(b)) });
+        const v = await reidVector(b);
+        const own = vectorAlbumScore(reidAlbum, v);
+        const other = bestOtherProfile(p => p.reid.length ? vectorAlbumScore(p.reid, v) : NaN);
+        if (looksLikeOtherProfile(own, other, RECOGNIZER_DEFAULTS.reidThreshold)) {
+          noteOtherProfile(b, other.name, timestamp);
+          candidates.push({ box: b, score: NaN });   // looks more like another user: never chosen
+        } else {
+          candidates.push({ box: b, score: own });
+        }
       }
       const best = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
       if (Number.isFinite(best)) ownerLastScore = best;
@@ -1129,6 +1202,9 @@ function autoSelect(b, how) {
   const c = { x: b.originX + b.width / 2, y: b.originY + b.height / 2 };
   const result = tracker.selectAt(c.x, c.y, lastFrameTimestamp);
   if (result.ok) {
+    lockedSelectionId = result.id;
+    lockedProfile = profileMeta.active;
+    lockedHow = how.includes("Re-ID") ? "Re-ID" : how.includes("ใบหน้า") ? "ใบหน้า" : "เสื้อผ้า";
     ownerLastEvent = how;
     resetOwnerAgreements();
     notifyTracking(true);
@@ -1147,27 +1223,62 @@ function ownerAfterPersons(timestamp) {
 
   const target = tracker.getTarget();
 
-  // Keep the clothing signature of the followed box up to date, but only
-  // while it is matched and does not overlap anybody else.
+  // Verify the currently matched target against the remembered clothing
+  // before learning anything from it. This gate protects BOTH albums.
   if (target && target.state === "TRACKING" && target.matched &&
-      timestamp - lastSignatureAt >= SIGNATURE_REFRESH_MS) {
-    const alone = lastPersonBoxes.every(b => boxIoU(b, target.box) > 0.9 || boxIoU(b, target.box) < 0.05);
-    if (alone && timestamp - lastReidLearnAt >= REID_LEARN_MS && (reidReadyCache || REID_FEATURES)) {
-      lastReidLearnAt = timestamp;
-      reidLearn(timestamp, target.box);
+      timestamp - lastIdentityCheckAt >= SIGNATURE_REFRESH_MS) {
+    lastIdentityCheckAt = timestamp;
+
+    const alone = lastPersonBoxes.every(b =>
+      boxIoU(b, target.box) > 0.9 || boxIoU(b, target.box) < 0.05
+    );
+    const sig = signatureOf(target.box);
+
+    // With no album yet, the user's manual selection is the session
+    // baseline. Once an album exists, require a measurable clothing match.
+    let appearanceVerified = ownerAlbum.length === 0;
+
+    if (ownerAlbum.length > 0) {
+      const score = sig ? albumScore(ownerAlbum, sig) : NaN;
+      clothScore = score;
+
+      if (Number.isFinite(score)) {
+        appearanceVerified = score >= RECOGNIZER_DEFAULTS.clothThreshold;
+        if (!appearanceVerified) {
+          tracker.rejectCurrentMatch(timestamp);
+          resetOwnerAgreements();
+          return;
+        }
+      } else {
+        // Missing pixels / unusable crop is unknown, not a pass.
+        appearanceVerified = false;
+      }
     }
-    if (alone) {
-      lastSignatureAt = timestamp;
-      const sig = signatureOf(target.box);
+
+    // Never teach Re-ID or clothing from an unverified or crowded frame.
+    if (alone && appearanceVerified) {
+      tracker.confirmCurrentMatch();
+
+      if (timestamp - lastReidLearnAt >= REID_LEARN_MS &&
+          (reidReadyCache || REID_FEATURES)) {
+        lastReidLearnAt = timestamp;
+        reidLearn(timestamp, target.box);
+      }
+
       if (sig) {
-        clothScore = albumScore(ownerAlbum, sig);
-        // New views (owner turned around, jacket opened) are added at most every
-        // 2 s; very different crops are not learned (possible identity swap).
+        // New views (owner turned around, jacket opened) are added at most
+        // every 2 s; very different crops are not learned.
         const canAdd = timestamp - lastClothAddAt >= CLOTH_ADD_GAP_MS;
-        const r = learnIntoAlbum(ownerAlbum, sig, canAdd ? {} : { newViewAbove: ALBUM_DEFAULTS.sameViewAbove });
+        const r = learnIntoAlbum(
+          ownerAlbum,
+          sig,
+          canAdd ? {} : { newViewAbove: ALBUM_DEFAULTS.sameViewAbove }
+        );
         ownerAlbum = r.album;
-        if (r.action === "add") { lastClothAddAt = timestamp; saveClothAlbum(); }
-        else if (r.action === "blend" && timestamp - lastClothSaveAt >= 5000) {
+        if (r.action === "add") {
+          lastClothAddAt = timestamp;
+          saveClothAlbum();
+        } else if (r.action === "blend" && timestamp - lastClothSaveAt >= 5000) {
           lastClothSaveAt = timestamp;
           saveClothAlbum();
         }
@@ -1268,7 +1379,15 @@ function ownerAfterFaces(faceList, timestamp, width, height) {
         return;
       }
 
-      const candidates = results.map(r => ({ box: r.person, score: bestFaceScore(r.vector, ownerFaces) }));
+      const candidates = results.map(r => {
+        const own = bestFaceScore(r.vector, ownerFaces);
+        const other = bestOtherProfile(p => p.faces.length ? bestFaceScore(r.vector, p.faces) : NaN);
+        if (looksLikeOtherProfile(own, other, RECOGNIZER_DEFAULTS.faceThreshold)) {
+          noteOtherProfile(r.person, other.name, timestamp);
+          return { box: r.person, score: NaN };       // looks more like another user: never chosen
+        }
+        return { box: r.person, score: own };
+      });
       ownerLastScore = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
       const agreed = faceAgreement.push(candidates);
       if (agreed && !followingSomeone() && !ownerAutoPaused) {
@@ -1299,6 +1418,7 @@ export function startOwnerEnrolment() {
 
 /* UI: forget the enrolled face and the clothing signature. */
 export function forgetOwner() {
+  lockedSelectionId = null;
   ownerFaces = [];
   saveOwnerFaces();
   ownerAlbum = [];
@@ -1360,6 +1480,53 @@ export function rememberOwnerClothes() {
   ownerLastScore = NaN;
   resetOwnerAgreements();
   return { ok: true };
+}
+
+/* UI: the 3 profiles with their counts (names are plain text). */
+export function getOwnerProfiles() {
+  return profileMeta.names.map((name, i) => {
+    if (i === profileMeta.active) {
+      return { index: i, name, active: true, faces: ownerFaces.length, reid: reidAlbum.length, cloth: ownerAlbum.length };
+    }
+    const p = otherProfiles.find(o => o.index === i);
+    return { index: i, name, active: false, faces: p?.faces.length ?? 0, reid: p?.reid.length ?? 0, cloth: p?.cloth ?? 0 };
+  });
+}
+
+/* UI: make profile i the one that is searched for and followed. Clears the
+   current selection and pauses automatic search until FIND OWNER. */
+export function setActiveOwnerProfile(i) {
+  if (!OWNER_HOST) return { ok: false, reason: "NOT_LOCALHOST" };
+  if (!Number.isInteger(i) || i < 0 || i >= PROFILE_COUNT) return { ok: false, reason: "BAD_PROFILE" };
+  if (i === profileMeta.active) return { ok: true };
+  profileMeta.active = i;
+  saveProfileMeta();
+  ownerFaces = loadOwnerFaces();
+  ownerAlbum = loadClothAlbum();
+  reidAlbum = loadReidAlbum();
+  refreshOtherProfiles();
+  enrolRemaining = 0;
+  clothScore = NaN;
+  reidScore = NaN;
+  ownerLastScore = NaN;
+  lockedSelectionId = null;
+  otherProfileLabels = [];
+  resetOwnerAgreements();
+  if (running) tracker.clearSelection(lastFrameTimestamp);
+  ownerAutoPaused = true;
+  ownerLastEvent = `ผู้ใช้ปัจจุบัน: ${profileMeta.names[i]} · กด FIND OWNER เพื่อหา`;
+  notifyTracking(true);
+  return { ok: true };
+}
+
+/* UI: rename profile i (plain text, at most 20 characters). */
+export function renameOwnerProfile(i, name) {
+  if (!OWNER_HOST) return { ok: false, reason: "NOT_LOCALHOST" };
+  if (!Number.isInteger(i) || i < 0 || i >= PROFILE_COUNT) return { ok: false, reason: "BAD_PROFILE" };
+  profileMeta.names[i] = cleanProfileName(name, i);
+  saveProfileMeta();
+  refreshOtherProfiles();
+  return { ok: true, name: profileMeta.names[i] };
 }
 
 /* UI: allow automatic re-acquire again after CLEAR SELECTION. */
@@ -1518,6 +1685,7 @@ export function selectPersonAt(x, y) {
 export function clearPersonSelection() {
 
   tracker.clearSelection(lastFrameTimestamp);
+  lockedSelectionId = null;
 
   // CLEAR SELECTION means "follow nobody": no automatic re-acquire until the
   // user taps someone again or presses FIND OWNER.
@@ -1629,20 +1797,32 @@ function drawPersons(now) {
 
     if (person.selected) {
 
+      // A box chosen by owner recognition shows the active user's name
+      // instead of its selection number (#n counts selections, not people).
+      const name = lockedOwnerName(person.id);
+      const who = name ?? `#${person.id}`;
+      // Recognised by Re-ID or face: say what recognised it instead of
+      // "not verified". Clothing colour alone is too weak, it keeps the warning.
+      const tail = name && lockedHow !== "เสื้อผ้า" ? `จำได้จาก ${lockedHow}` : UNVERIFIED_TEXT;
+
       drawBox(
         person.box,
         person.searching
-          ? `กำลังค้นหา #${person.id} · ${UNVERIFIED_TEXT}`
-          : `ติดตาม #${person.id} ${percent} · ${UNVERIFIED_TEXT}`,
+          ? `กำลังค้นหา ${who} · ${tail}`
+          : `ติดตาม ${who} ${percent} · ${tail}`,
         "#ffb020",
         { dashed: person.searching, thick: true }
       );
 
     } else {
 
+      const other = otherProfileLabelFor(person.box, now);
+
       drawBox(
         person.box,
-        `PERSON ${percent} · ${UNVERIFIED_TEXT}`,
+        other
+          ? `${other} (ไม่ใช่ผู้ใช้ที่เลือก) ${percent} · ${UNVERIFIED_TEXT}`
+          : `PERSON ${percent} · ${UNVERIFIED_TEXT}`,
         "#b18cff"
       );
     }

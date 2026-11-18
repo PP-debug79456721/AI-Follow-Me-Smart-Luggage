@@ -72,9 +72,14 @@
         <p id="trackMessage" role="status">ยังไม่ได้ตรวจจับ เริ่มกล้องก่อน</p>
         <p class="track-hint">
           แตะกรอบบุคคลเพื่อเลือกกรอบที่จะติดตาม
-          การแตะไม่ใช่การยืนยันตัวตน ทุกกรอบจึงเป็น "ยังไม่ยืนยันตัวตน"
+          การแตะไม่ใช่การยืนยันตัวตน กรอบจึงเป็น "ยังไม่ยืนยันตัวตน"
+          ยกเว้นกรอบที่ระบบจำผู้ใช้ได้จาก Re-ID หรือใบหน้า จะขึ้นว่า "จำได้จาก ..." (ช่วยความสะดวก ไม่ใช่ระบบความปลอดภัย)
         </p>
         <div class="track-row owner-row" id="ownerControls" hidden>
+          <label for="ownerProfileSelect">ผู้ใช้</label>
+          <select id="ownerProfileSelect" aria-label="ผู้ใช้ที่ต้องการให้ติดตาม"></select>
+          <input id="ownerNameInput" maxlength="20" placeholder="ชื่อผู้ใช้" aria-label="ชื่อผู้ใช้" size="10">
+          <button id="ownerRenameBtn">SAVE NAME</button>
           <button id="ownerClothesBtn">REMEMBER CLOTHES</button>
           <button id="ownerViewBtn">ADD VIEW</button>
           <button id="ownerEnrolBtn">ENROL OWNER FACE</button>
@@ -86,6 +91,8 @@
           ระบบจำสีเสื้อและกางเกงได้สูงสุด 8 มุม: หันหลัง/หันข้างแล้วกด ADD VIEW ทีละมุม
           (ระหว่างติดตามก็เก็บมุมใหม่เอง) เมื่อหลุด (LOST) จะหาเจ้าของคืนเองจากสีเสื้อผ้า
           ENROL OWNER FACE เป็นตัวเสริม (ต้องเปิดด้วย ?modelMode=development)
+          ลงทะเบียนได้ 3 ผู้ใช้: เลือกผู้ใช้จากเมนูก่อน แล้วลงทะเบียนทีละคน
+          ระบบหาและติดตามเฉพาะผู้ใช้ที่เลือกอยู่ คนอื่นที่ลงทะเบียนไว้จะขึ้นชื่อบนกรอบแต่ไม่ถูกเลือก
         </p>
       </div>
 

@@ -196,6 +196,47 @@ test("a different-sized box far away is not taken as the target", () => {
   assert.equal(state(tracker), TRACK_STATE.SEARCHING);
 });
 
+test("two people equally close to the target: no guess, SEARCHING", () => {
+  const tracker = trackerWithSelection(person(200, 100));
+  // Same size, 20 px left and 20 px right: identical overlap and distance.
+  tracker.update([person(180, 100), person(220, 100)], 500, W, H);
+  assert.equal(state(tracker), TRACK_STATE.SEARCHING);
+  const target = tracker.getTarget();
+  assert.equal(target.matched, false);
+  assert.equal(target.box.originX, 200);   // remembered box, not either person
+  // Neither detected person is marked as the target; only the dashed remembered box.
+  const chosen = tracker.getDrawables(500 + SMOOTH_MS).filter(d => d.selected);
+  assert.equal(chosen.length, 1);
+  assert.equal(chosen[0].searching, true);
+});
+
+test("one clearly closer person is still followed when another is near", () => {
+  const tracker = trackerWithSelection(person(200, 100));
+  tracker.update([person(205, 100), person(330, 100)], 500, W, H);
+  assert.equal(state(tracker), TRACK_STATE.TRACKING);
+  assert.equal(tracker.getTarget().box.originX, 205);
+});
+
+test("rejectCurrentMatch restores the last confirmed box and enters SEARCHING", () => {
+  const tracker = trackerWithSelection(person(100, 100));   // confirmed at selection
+  tracker.update([person(120, 100)], 500, W, H);
+  assert.equal(state(tracker), TRACK_STATE.TRACKING);
+  assert.equal(tracker.rejectCurrentMatch(500), true);
+  assert.equal(state(tracker), TRACK_STATE.SEARCHING);
+  assert.equal(tracker.getTarget().box.originX, 100);
+  assert.equal(tracker.getTarget().matched, false);
+  assert.equal(tracker.rejectCurrentMatch(500), false);     // nothing matched to reject
+});
+
+test("confirmCurrentMatch moves the restore point to the current box", () => {
+  const tracker = trackerWithSelection(person(100, 100));
+  tracker.update([person(120, 100)], 500, W, H);
+  assert.equal(tracker.confirmCurrentMatch(), true);
+  tracker.update([person(140, 100)], 1000, W, H);
+  tracker.rejectCurrentMatch(1000);
+  assert.equal(tracker.getTarget().box.originX, 120);
+});
+
 // --------------------------------------------------
 // SEARCHING and LOST
 // --------------------------------------------------

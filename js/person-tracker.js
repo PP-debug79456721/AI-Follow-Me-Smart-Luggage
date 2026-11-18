@@ -45,6 +45,8 @@ const DEFAULTS = Object.freeze({
   lostAfterMs: 2500,        // grace time before a missing target counts as lost
   edgeMarginRatio: 0.04,    // "touching the edge" = within 4 % of the frame
   minIou: 0.15,             // overlap needed to treat two boxes as the same
+  ambiguityIouMargin: 0.08, // reject near-tied person matches
+  ambiguityDistanceMargin: 0.12,
   maxCenterDistRatio: 0.6,  // fallback: centre distance / sqrt(box area)
   glideDistRatio: 1.0,      // looser limit used only to animate drawn boxes
   tapPaddingRatio: 0.04,    // forgiveness around a box when tapping
@@ -141,7 +143,7 @@ export function createPersonTracker(options = {}) {
   const config = { ...DEFAULTS, ...options };
 
   let state = TRACK_STATE.STOPPED;
-  let selected = null;       // { id, box, prevBox, score, lastSeenMs, matched, blockedWhileMissing }
+  let selected = null;       // { id, box, prevBox, confirmedBox, score, lastSeenMs, matched, blockedWhileMissing }
   let detections = [];       // latest detection result: { box, score, selected }
   let frame = { width: 0, height: 0 };
   let nextId = 1;
@@ -338,24 +340,30 @@ export function createPersonTracker(options = {}) {
 
       if (selected) {
 
-        let best = null;
+        const matches = [];
 
         detections.forEach((candidate, index) => {
-
           const quality = matchQuality(selected.box, candidate.box);
-
-          if (!quality.ok) return;
-
-          if (
-            !best ||
-            quality.overlap > best.overlap ||
-            (quality.overlap === best.overlap && quality.distance < best.distance)
-          ) {
-            best = { index, ...quality };
-          }
+          if (quality.ok) matches.push({ index, ...quality });
         });
 
-        if (best) {
+        matches.sort((a, b) =>
+          b.overlap - a.overlap || a.distance - b.distance
+        );
+
+        const best = matches[0] || null;
+        const second = matches[1] || null;
+        const ambiguous = Boolean(best && second &&
+          best.overlap - second.overlap <= config.ambiguityIouMargin &&
+          second.distance - best.distance <= config.ambiguityDistanceMargin
+        );
+
+        if (ambiguous) {
+          // Do not guess when two people are nearly equally plausible.
+          // Keep the last confirmed box and enter SEARCHING instead.
+          selected.matched = false;
+          if (blocked) selected.blockedWhileMissing = true;
+        } else if (best) {
           const hit = detections[best.index];
           hit.selected = true;
           selected.prevBox = selected.box;
@@ -371,6 +379,32 @@ export function createPersonTracker(options = {}) {
       }
 
       evaluate(now, false);
+    },
+
+    /*
+     * Rejects the latest matched detection after an external appearance
+     * check fails. Restores the last confirmed box and enters SEARCHING.
+     */
+    rejectCurrentMatch(now) {
+
+      if (!selected || !selected.matched) return false;
+
+      const rejected = detections.find(candidate => candidate.selected);
+      if (rejected) rejected.selected = false;
+
+      if (selected.confirmedBox) selected.box = copyBox(selected.confirmedBox);
+      else if (selected.prevBox) selected.box = copyBox(selected.prevBox);
+      selected.prevBox = null;
+      selected.matched = false;
+      evaluate(now, false);
+      return true;
+    },
+
+    /* Marks the current match as the last appearance-verified position. */
+    confirmCurrentMatch() {
+      if (!selected || !selected.matched) return false;
+      selected.confirmedBox = copyBox(selected.box);
+      return true;
     },
 
     /*
@@ -459,6 +493,7 @@ export function createPersonTracker(options = {}) {
         selected = {
           id: nextId++,
           box: copyBox(pick.box),
+          confirmedBox: copyBox(pick.box),
           score: pick.score,
           lastSeenMs: now,
           matched: true,
