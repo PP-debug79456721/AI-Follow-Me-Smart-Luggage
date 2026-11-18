@@ -10,7 +10,7 @@ import {
   colorSignature, signatureSimilarity, blendSignature,
   albumScore, learnIntoAlbum,
   vectorAlbumScore, learnIntoVectorAlbum,
-  createAgreement, RECOGNIZER_DEFAULTS
+  createAgreement, createFusedAgreement, FUSION_DEFAULTS, RECOGNIZER_DEFAULTS
 } from "../js/owner-recognizer.js";
 
 const box = (x, y, w, h) => ({ originX: x, originY: y, width: w, height: h });
@@ -179,4 +179,107 @@ test("Re-ID vector album: blend, add, skip, unit length", () => {
   assert.ok(vectorAlbumScore(r.album, other) < 0.1);
   assert.equal(learnIntoVectorAlbum(r.album, [0, 0, 0, 0]).action, "skip");
   void a;
+});
+
+// ---------------------------------------------------------------------------
+// Re-ID + clothing colours together (createFusedAgreement)
+// ---------------------------------------------------------------------------
+
+const fused = () => createFusedAgreement({
+  reidThreshold: RECOGNIZER_DEFAULTS.reidThreshold,
+  reidFloor: FUSION_DEFAULTS.reidFloor,
+  reidMargin: RECOGNIZER_DEFAULTS.reidMargin,
+  clothThreshold: RECOGNIZER_DEFAULTS.clothThreshold,
+  clothMargin: RECOGNIZER_DEFAULTS.clothMargin,
+  window: RECOGNIZER_DEFAULTS.window,
+  need: RECOGNIZER_DEFAULTS.need,
+  sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
+});
+
+const A = box(100, 50, 80, 160);
+const B = box(300, 50, 80, 160);
+const cand = (b, reid, cloth) => ({ box: b, reid, cloth });
+
+/* Feeds the same round `n` times; returns the last answer. */
+function rounds(agreement, n, list) {
+  let out = null;
+  for (let i = 0; i < n; i += 1) out = agreement.push(list);
+  return out;
+}
+
+test("FU1 defaults: floor 0.50 is below the Re-ID threshold 0.65", () => {
+  assert.equal(FUSION_DEFAULTS.reidFloor, 0.5);
+  assert.ok(FUSION_DEFAULTS.reidFloor < RECOGNIZER_DEFAULTS.reidThreshold);
+});
+
+test("FU2 strong Re-ID (>= 0.65) alone decides after 3 rounds, as before", () => {
+  const a = fused();
+  assert.equal(rounds(a, 2, [cand(A, 0.72, NaN)]), null);
+  const win = a.push([cand(A, 0.72, NaN)]);
+  assert.equal(win.how, "reid");
+  assert.equal(win.score, 0.72);
+});
+
+test("FU3 weaker Re-ID (0.50-0.64) WITH matching clothes decides, and says so", () => {
+  const win = rounds(fused(), 3, [cand(A, 0.56, 0.86)]);
+  assert.equal(win.how, "reid+cloth");
+  assert.deepEqual(win.box, A);
+});
+
+test("FU4 weaker Re-ID without matching clothes never decides", () => {
+  assert.equal(rounds(fused(), 6, [cand(A, 0.60, 0.70)]), null);     // clothes below 0.80
+  assert.equal(rounds(fused(), 6, [cand(A, 0.60, NaN)]), null);      // clothes unknown
+});
+
+test("FU5 Re-ID below the floor never decides, however good the clothes", () => {
+  assert.equal(rounds(fused(), 6, [cand(A, 0.45, 0.98)]), null);
+});
+
+test("FU6 a second person with a close Re-ID score blocks the win (margin 0.05), eligible or not", () => {
+  assert.equal(rounds(fused(), 6, [cand(A, 0.58, 0.86), cand(B, 0.56, 0.40)]), null);
+  assert.equal(rounds(fused(), 6, [cand(A, 0.70, NaN), cand(B, 0.68, NaN)]), null);
+});
+
+test("FU7 fused rule also needs the clothes to lead every other person by 0.06", () => {
+  const similarClothes = [cand(A, 0.60, 0.86), cand(B, 0.50, 0.84)];   // Re-ID leads by 0.10, clothes by 0.02
+  assert.equal(rounds(fused(), 6, similarClothes), null);
+  const clearClothes = [cand(A, 0.60, 0.86), cand(B, 0.50, 0.70)];     // clothes lead by 0.16
+  assert.equal(rounds(fused(), 3, clearClothes).how, "reid+cloth");
+});
+
+test("FU8 the strong rule does not look at the clothes (same as the old Re-ID-only rule)", () => {
+  const win = rounds(fused(), 3, [cand(A, 0.72, 0.30), cand(B, 0.60, 0.95)]);
+  assert.equal(win.how, "reid");
+  assert.deepEqual(win.box, A);
+});
+
+test("FU9 only the best Re-ID person can win, even when someone else has better clothes", () => {
+  assert.equal(rounds(fused(), 6, [cand(A, 0.55, 0.60), cand(B, 0.52, 0.95)]), null);
+});
+
+test("FU10 3 of the last 5 rounds must pick the same box; NaN Re-ID candidates are ignored", () => {
+  const a = fused();
+  assert.equal(a.push([cand(A, 0.56, 0.86)]), null);
+  assert.equal(a.push([cand(A, NaN, NaN)]), null);                   // no winner this round
+  assert.equal(a.push([cand(A, 0.56, 0.86)]), null);                 // 2 of 3
+  assert.equal(a.push([cand(B, 0.56, 0.86)]), null);                 // another box does not count
+  const win = a.push([cand(A, 0.56, 0.86)]);                         // A has 3 of the last 5
+  assert.deepEqual(win.box, A);
+});
+
+test("FU11 reset() forgets the rounds", () => {
+  const a = fused();
+  rounds(a, 2, [cand(A, 0.56, 0.86)]);
+  a.reset();
+  assert.equal(a.length, 0);
+  assert.equal(a.push([cand(A, 0.56, 0.86)]), null);
+});
+
+test("FU12 with reidFloor = reidThreshold (?fuse=0) the fused rule cannot fire", () => {
+  const a = createFusedAgreement({
+    reidThreshold: 0.65, reidFloor: 0.65, reidMargin: 0.05, clothThreshold: 0.8, clothMargin: 0.06,
+    window: 5, need: 3, sameBoxIoU: 0.3
+  });
+  assert.equal(rounds(a, 6, [cand(A, 0.60, 0.95)]), null);
+  assert.equal(rounds(a, 3, [cand(A, 0.70, 0.10)]).how, "reid");
 });

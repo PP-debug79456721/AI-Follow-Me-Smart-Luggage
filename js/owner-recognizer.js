@@ -303,6 +303,74 @@ export const RECOGNIZER_DEFAULTS = Object.freeze({
 });
 
 /*
+ * Re-acquire with Re-ID AND clothing colours together (owner lost, found again).
+ *
+ * Re-ID alone needs cosine >= reidThreshold (0.65). That is hard to reach on a low-resolution phone
+ * picture or at another angle, so the owner was often not found although the clothes matched. With the
+ * clothing album a weaker Re-ID is enough, but only when both agree and the best person clearly leads:
+ *
+ *   strong:  top Re-ID >= reidThreshold, leads the second best by reidMargin            (as before)
+ *   fused:   reidFloor <= top Re-ID < reidThreshold, top clothes >= clothThreshold,
+ *            top Re-ID leads by reidMargin AND top clothes lead every other person by clothMargin
+ *
+ * Only the person with the highest Re-ID score can win a round, and every other person is a competitor
+ * for the margins, whether or not he/she would pass. After `need` of the last `window` rounds picked
+ * overlapping boxes the decision is that box. `how` says which rule decided: "reid" or "reid+cloth".
+ *
+ * candidates: [{ box, reid, cloth }]  (NaN reid = ignored, NaN cloth = clothes unknown: no fused win)
+ */
+export const FUSION_DEFAULTS = Object.freeze({
+  reidFloor: 0.50           // weakest Re-ID that clothes may confirm; tune on the real camera
+});
+
+export function createFusedAgreement({
+  reidThreshold, reidFloor, reidMargin, clothThreshold, clothMargin, window, need, sameBoxIoU
+}) {
+
+  let rounds = [];   // null (no winner) or { box, score, cloth, how }
+
+  return {
+
+    push(candidates) {
+
+      const list = (candidates || []).filter(c => Number.isFinite(c.reid));
+      list.sort((a, b) => b.reid - a.reid);
+
+      let winner = null;
+      const top = list[0];
+
+      if (top) {
+        const rest = list.slice(1);
+        const secondReid = rest.length ? rest[0].reid : -Infinity;
+
+        if (top.reid - secondReid >= reidMargin) {
+          if (top.reid >= reidThreshold) {
+            winner = { box: top.box, score: top.reid, cloth: top.cloth, how: "reid" };
+          } else if (top.reid >= reidFloor && Number.isFinite(top.cloth) && top.cloth >= clothThreshold) {
+            const otherCloth = Math.max(...rest.map(c => c.cloth).filter(Number.isFinite));   // -Infinity if none
+            if (top.cloth - otherCloth >= clothMargin) {
+              winner = { box: top.box, score: top.reid, cloth: top.cloth, how: "reid+cloth" };
+            }
+          }
+        }
+      }
+
+      rounds.push(winner);
+      if (rounds.length > window) rounds = rounds.slice(-window);
+
+      const last = rounds[rounds.length - 1];
+      if (!last) return null;
+      const agreeing = rounds.filter(r => r && boxIoU(r.box, last.box) >= sameBoxIoU).length;
+      return agreeing >= need ? { ...last } : null;
+    },
+
+    reset() { rounds = []; },
+
+    get length() { return rounds.length; }
+  };
+}
+
+/*
  * One recognition round gives, for each candidate person box, a score.
  * The winner of the round is the best box if it passes the threshold and
  * beats the second best by the margin; otherwise the round has no winner.

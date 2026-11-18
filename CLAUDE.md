@@ -224,6 +224,13 @@ before Upload. Small changes are safer made inside the IDE.
   overshoots turns or oscillates, open the page with `?predict=0` to compare.
 - **Low-fps hint (2026-11-18)**: `js/fps-hint.js` (tests/fps-hint.test.mjs): after 5 one-second readings below 10 fps the camera overlay
   shows `<n> FPS · ต่ำ: แสงน้อย/เครื่องหนัก` (clears at >= 12). It only explains; a phone lowers the camera rate in dim light by itself.
+- **Re-ID + clothes decide together when re-acquiring the owner (2026-11-18)**: `owner-recognizer.js createFusedAgreement` (tests FU1-FU12).
+  Before, a loaded Re-ID with an album decided ALONE (cosine >= 0.65) and the clothes album (8 views) was ignored, so the owner was often not
+  found again on the low-resolution phone picture. Now: strong = Re-ID >= 0.65 leading by 0.05 (unchanged); fused = Re-ID 0.50-0.64 AND
+  clothes >= 0.80 for the same person, Re-ID leading by 0.05 AND clothes leading every other person by 0.06; 3 of 5 rounds. A fused win is
+  labelled like a clothes match (`lockedHow` "เสื้อผ้า": UNVERIFIED label, no auto-learning until Re-ID confirms). The OWNER line shows
+  `ค้นหา Re-ID 0.xx (เสื้อ 0.yy)` while searching. URL switches: `?fuse=0` = old Re-ID-only rule, `?reidfloor=0.55` = weakest Re-ID that clothes
+  may confirm. Thresholds are starting values, NOT tuned on the real camera. Wrong-person risk: people in similar clothes.
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

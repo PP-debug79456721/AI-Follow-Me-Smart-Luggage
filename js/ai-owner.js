@@ -28,6 +28,8 @@ import {
   REID_ALBUM_DEFAULTS,
   ALBUM_DEFAULTS,
   createAgreement,
+  createFusedAgreement,
+  FUSION_DEFAULTS,
   RECOGNIZER_DEFAULTS
 } from "./owner-recognizer.js";
 
@@ -1123,9 +1125,22 @@ const clothAgreement = createAgreement({
   sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
 });
 
-const reidAgreement = createAgreement({
-  threshold: RECOGNIZER_DEFAULTS.reidThreshold,
-  margin: RECOGNIZER_DEFAULTS.reidMargin,
+// Re-ID and clothing colours decide TOGETHER when the owner is lost and found again (see
+// createFusedAgreement): ?fuse=0 gives the old Re-ID-only rule, ?reidfloor=0.55 changes the weakest
+// Re-ID that clothes may confirm (default 0.50, never above the Re-ID threshold).
+const FUSE_SEARCH = new URLSearchParams(location.search).get("fuse") !== "0";
+const REID_FLOOR = (() => {
+  const value = Number(new URLSearchParams(location.search).get("reidfloor"));
+  const wanted = Number.isFinite(value) && value > 0 ? value : FUSION_DEFAULTS.reidFloor;
+  return Math.min(RECOGNIZER_DEFAULTS.reidThreshold, Math.max(0.3, wanted));
+})();
+
+const reidAgreement = createFusedAgreement({
+  reidThreshold: RECOGNIZER_DEFAULTS.reidThreshold,
+  reidFloor: FUSE_SEARCH ? REID_FLOOR : RECOGNIZER_DEFAULTS.reidThreshold,
+  reidMargin: RECOGNIZER_DEFAULTS.reidMargin,
+  clothThreshold: RECOGNIZER_DEFAULTS.clothThreshold,
+  clothMargin: RECOGNIZER_DEFAULTS.clothMargin,
   window: RECOGNIZER_DEFAULTS.window,
   need: RECOGNIZER_DEFAULTS.need,
   sameBoxIoU: RECOGNIZER_DEFAULTS.sameBoxIoU
@@ -1351,26 +1366,44 @@ function reidSearch(timestamp) {
   lastReidSearchAt = timestamp;
   reidBusy = true;
   const boxes = lastPersonBoxes.slice(0, REID_MAX_CANDIDATES);
+  // Clothing colours of the same boxes, read NOW (synchronously), before the first await: same frame.
+  const clothScores = boxes.map(b => {
+    if (ownerAlbum.length === 0) return NaN;
+    const sig = signatureOf(b);
+    if (!sig) return NaN;
+    const own = albumScore(ownerAlbum, sig);
+    const other = bestOtherProfile(p => p.cloth.length ? albumScore(p.cloth, sig) : NaN);
+    // Looks more like another registered user: no clothes evidence for this person.
+    return looksLikeOtherProfile(own, other, RECOGNIZER_DEFAULTS.clothThreshold) ? NaN : own;
+  });
   (async () => {
     try {
       const candidates = [];
-      for (const b of boxes) {
+      for (let i = 0; i < boxes.length; i += 1) {
+        const b = boxes[i];
         const v = await reidVector(b);
         const own = vectorAlbumScore(reidAlbum, v);
         const other = bestOtherProfile(p => p.reid.length ? vectorAlbumScore(p.reid, v) : NaN);
         if (looksLikeOtherProfile(own, other, RECOGNIZER_DEFAULTS.reidThreshold)) {
           noteOtherProfile(b, other.name, timestamp);
-          candidates.push({ box: b, score: NaN });   // looks more like another user: never chosen
+          candidates.push({ box: b, reid: NaN, cloth: NaN });   // looks more like another user: never chosen
         } else {
-          candidates.push({ box: b, score: own });
+          candidates.push({ box: b, reid: own, cloth: clothScores[i] });
         }
       }
-      const best = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
+      const best = Math.max(...candidates.map(c => c.reid).filter(Number.isFinite));
       if (Number.isFinite(best)) ownerLastScore = best;
+      const bestCloth = Math.max(...candidates.map(c => c.cloth).filter(Number.isFinite));
+      ownerLastClothScore = Number.isFinite(bestCloth) ? bestCloth : NaN;
       const agreed = reidAgreement.push(candidates);
       if (agreed && !followingSomeone() && !ownerAutoPaused) {
         ownerLastScore = agreed.score;
-        autoSelect(agreed.box, "พบเจ้าของจาก Re-ID");
+        if (agreed.how === "reid+cloth") {
+          // Weaker than Re-ID alone: labelled like a clothes match (no auto-learning until Re-ID confirms).
+          autoSelect(agreed.box, "พบเจ้าของจาก Re-ID + เสื้อผ้า", "เสื้อผ้า");
+        } else {
+          autoSelect(agreed.box, "พบเจ้าของจาก Re-ID");
+        }
       }
     } catch (error) {
       console.warn("Re-ID search failed:", error);
@@ -1379,6 +1412,8 @@ function reidSearch(timestamp) {
     }
   })();
 }
+
+let ownerLastClothScore = NaN;   // best clothes score of the last Re-ID search round (display only)
 
 function ownerStatusText() {
   if (!OWNER_HOST) return UNVERIFIED_TEXT;
@@ -1401,7 +1436,10 @@ function ownerStatusText() {
   if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
   if (!LEARN_ENABLED) parts.push("ไม่เรียนรู้อัตโนมัติ (learn=0)");
   else if (followingSomeone() && !followedLearnAllowed()) parts.push("รอยืนยันตัวตนก่อนเรียนรู้");
-  if (ownerLastEvent) parts.push(ownerLastEvent + score);
+  const clothNote = !followingSomeone() && Number.isFinite(ownerLastClothScore) && Number.isFinite(ownerLastScore)
+    ? ` (เสื้อ ${ownerLastClothScore.toFixed(2)})` : "";
+  if (ownerLastEvent) parts.push(ownerLastEvent + score + clothNote);
+  else if (clothNote && reidReadyCache) parts.push(`ค้นหา Re-ID${score}${clothNote}`);   // the scores while searching
   return parts.join(" · ");
 }
 
@@ -1425,13 +1463,13 @@ function signatureOf(b) {
   return px ? colorSignature(px, SIGNATURE_W, SIGNATURE_H) : null;
 }
 
-function autoSelect(b, how) {
+function autoSelect(b, how, label = null) {
   const c = { x: b.originX + b.width / 2, y: b.originY + b.height / 2 };
   const result = tracker.selectAt(c.x, c.y, lastFrameTimestamp);
   if (result.ok) {
     lockedSelectionId = result.id;
     lockedProfile = profileMeta.active;
-    lockedHow = how.includes("Re-ID") ? "Re-ID" : how.includes("ใบหน้า") ? "ใบหน้า" : "เสื้อผ้า";
+    lockedHow = label ?? (how.includes("Re-ID") ? "Re-ID" : how.includes("ใบหน้า") ? "ใบหน้า" : "เสื้อผ้า");
     lockedReidBaseline = reidAlbum.slice();
     lockedUpgradeHits = 0;
     ownerLastEvent = how;
