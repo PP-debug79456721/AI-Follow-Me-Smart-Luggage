@@ -216,6 +216,10 @@ export function createEsp32Link({ transport, randomValues, ...options } = {}) {
     rateLimited: 0, clockFaults: 0, sendFailures: 0, dropped: 0
   };
 
+  // How many times each STOP reason was ENTERED while the link was established (a change of the reason,
+  // not every evaluation). Diagnostics only: shows which gate makes the luggage stop-and-go.
+  const stopEntries = {};
+
   const established = () => state === LINK_STATE.IDLE || state === LINK_STATE.FOLLOWING;
 
   function newSid() {
@@ -502,6 +506,9 @@ export function createEsp32Link({ transport, randomValues, ...options } = {}) {
     if (!established() || emergency) return;
 
     const eff = effective(now);
+    if (eff.reason !== lastEffectiveReason && eff.command === "STOP") {
+      stopEntries[eff.reason] = (stopEntries[eff.reason] ?? 0) + 1;
+    }
     lastEffectiveReason = eff.reason;
     const heartbeatDue = lastSentAt === null || now - lastSentAt >= config.heartbeatMs;
 
@@ -886,7 +893,8 @@ export function createEsp32Link({ transport, randomValues, ...options } = {}) {
         lastResyncReason,
         lastStopReason,
         lastEffectiveReason,
-        counters: { ...counters }
+        counters: { ...counters },
+        stopEntries: { ...stopEntries }
       };
     }
   };

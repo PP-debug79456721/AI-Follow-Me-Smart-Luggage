@@ -164,9 +164,11 @@ export async function startCamera() {
         ideal: LITE ? 240 : 480
       },
 
+      // Asking for 12 fps let the phone pick a low-light frame-rate range and deliver < 10 fps. Ask for
+      // 30 and let the camera choose (detection speed is set by the detector period, not by this).
       frameRate: {
-        ideal: LITE ? 12 : 15,
-        max: LITE ? 15 : 20
+        ideal: LITE ? 30 : 15,
+        max: LITE ? 30 : 20
       }
     }
   });

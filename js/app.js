@@ -198,7 +198,9 @@ let lastBleSocket = null;                      // for the timing line on the ESP
 const DEMO_MODE = new URLSearchParams(location.search).get("mode") === "demo";
 // Detection evidence may be up to 1.2 s old and a command may run up to 1.5 s
 // (normal: 0.45 s / 0.7 s). Only used in DEMO mode.
-const DEMO_LINK = DEMO_MODE ? { ageClaimMaxMs: 1200, evidenceMaxMs: 1500 } : {};
+// rttGateMs 450 (normal 300): the RTT estimate is the max of the last 3 samples, and on the bench single
+// Wi-Fi/phone spikes of 300-400 ms made RTT_GATE stop the wheels although the device lease still covers them.
+const DEMO_LINK = DEMO_MODE ? { ageClaimMaxMs: 1200, evidenceMaxMs: 1500, rttGateMs: 450 } : {};
 
 const session = createEsp32Session({
   createSocket(url) {
@@ -423,6 +425,19 @@ function bleTimingLines(status) {
   ];
 }
 
+/* "stops: RTT_GATE x3, STALE_DECISION x5 ... busy x2": which gate made the luggage stop (most frequent first). */
+function stopReasonsLine(link) {
+  // DECISION_STOP is the normal "owner is close / not tracked" stop, not a link problem.
+  const entries = Object.entries(link.stopEntries ?? {})
+    .filter(([reason]) => reason !== "DECISION_STOP")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([reason, count]) => `${reason} x${count}`);
+  const busy = link.counters?.busy ?? 0;
+  if (busy > 0) entries.push(`BUSY x${busy}`);
+  return `stops: ${entries.length ? entries.join(", ") : "-"}`;
+}
+
 function renderEspLink() {
 
   const status = session.getStatus();
@@ -457,6 +472,7 @@ function renderEspLink() {
     `device motor: ${deviceMotorText(status)}   rtt: ${link.rttEst == null ? "-" : Math.round(link.rttEst)} ms`,
     `last: ${status.lastEvent ?? "-"}   resync: ${link.lastResyncReason ?? "-"}`,
     `page stall: ${Math.round(Math.max(stallShown, stallMax))} ms   buffered: ${status.buffered ?? "-"} B   hidden: ${hiddenCount}`,
+    stopReasonsLine(link),
     ...bleTimingLines(status)
   ].join("\n"));
 }

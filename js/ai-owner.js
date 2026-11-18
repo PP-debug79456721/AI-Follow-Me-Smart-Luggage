@@ -247,6 +247,10 @@ let lastPersonInference = 0;
 // healthy target at about 200-350 ms.
 const INFERENCE_INTERVAL = 100;
 const PERSON_INTERVAL = 200;
+// With the detector in a worker the main thread no longer pays for the inference, so detect more often:
+// a fresher target means a smaller age at the link gate (450 ms) and smoother wheels. The next request is
+// chained to the previous result (see requestWorkerPersons) instead of waiting for the 100 ms frame gate.
+const PERSON_INTERVAL_WORKER = 150;
 
 // Phones (lite mode) heat up: on a mid-range phone INF grew from ~180 ms to ~270 ms after 10 minutes.
 // While the luggage is NOT following (waiting, choosing the owner) there is no need to detect 5 times
@@ -311,7 +315,7 @@ function personIntervalMs() {
   return personIntervalFor({
     lite: LITE_MODE,
     following: followActive,
-    normalMs: PERSON_INTERVAL,
+    normalMs: personWorker ? PERSON_INTERVAL_WORKER : PERSON_INTERVAL,
     idleMs: PERSON_INTERVAL_IDLE
   });
 }
@@ -2146,6 +2150,23 @@ function applyPersonDetections(detections, timestamp, width, height, inferMs, la
 }
 
 /* Sends the current frame to the person worker; the answer is applied when it arrives. */
+/*
+ * Asks for the next frame as soon as the detection period allows, right after a result, instead of
+ * waiting for the next processFrame() pass (which only runs every >= 100 ms and later on a busy page).
+ * Never runs two detections at once (busy() check) and stays quiet while the camera is not delivering.
+ */
+function scheduleNextWorkerRequest(worker) {
+  const wait = Math.max(0, personIntervalMs() - (performance.now() - lastPersonInference));
+  setTimeout(() => {
+    if (!running || personWorker !== worker || worker.busy() || cameraStalled()) return;
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return;
+    if (performance.now() - lastPersonInference < personIntervalMs()) return;   // processFrame was first
+    requestWorkerPersons(performance.now(), width, height);
+  }, wait);
+}
+
 function requestWorkerPersons(timestamp, width, height) {
 
   const worker = personWorker;
@@ -2175,6 +2196,8 @@ function requestWorkerPersons(timestamp, width, height) {
       ownerAfterPersons(lastFrameTimestamp, width, height);
       ownerStatus.textContent = ownerStatusText();
       notifyTracking();
+
+      scheduleNextWorkerRequest(worker);
     })
     .catch(error => {
       // One frame lost (bitmap or detection error). Repeated failures make the client fail, which

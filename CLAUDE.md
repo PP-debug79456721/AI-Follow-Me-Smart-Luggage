@@ -206,6 +206,16 @@ before Upload. Small changes are safer made inside the IDE.
   >= 4 s while FOLLOW is on on every device (search is still slower only in lite mode). `app.js` `setStatus` no longer rewrites
   identical text (the ESP32 card refreshes every 250 ms). Clothing identity check (`SIGNATURE_REFRESH_MS` 500 ms) is unchanged on
   purpose: it is the gate that rejects a wrong person. Not yet measured on the phone (compare `page stall` with `lite=0&worker=1`).
+- **Bench fixes for the 5 open problems (2026-11-18 evening)**: (1) DEVICE BUSY: pagehide already sends STOP+BYE, so a reload is fine; after a
+  Wi-Fi drop the board keeps the old session for sessionLivenessMs (1200) and answers BUSY meanwhile (the page waits 4 s and retries) - a
+  BUSY that lasts longer means a SECOND page/tab is connected. The ESP32 card now shows `stops: <reason> xN ... BUSY xN` (esp32-link
+  `stopEntries`, entries per reason, DECISION_STOP left out) so the next test shows which gate causes stop-and-go. (2) Jerky start:
+  firmware `kRampPerSecond` 2.5 -> 1.0 (0.60 duty in 0.6 s; slowing/STOP still immediate; NOT yet tried on the board). (3) Camera fps:
+  lite capture asks `frameRate ideal 30 / max 30` (12 let the phone pick a low-light range < 10 fps). (4) Person detection gap: with the
+  worker the period is 150 ms and the next request is chained to the previous result (`scheduleNextWorkerRequest`) instead of waiting for
+  the 100 ms frame gate; the 500 ms shown before FOLLOW in lite mode is the IDLE period, not a fault. (5) Dropouts: DEMO mode now also
+  uses `rttGateMs 450` (normal 300); the device-side proof limit (500 ms) and the lease still apply. Root cause of Wi-Fi drops
+  (AUTH_EXPIRE, rssi -57..-71) is signal/hotspot, not code. Nothing here is measured on the phone/board yet.
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

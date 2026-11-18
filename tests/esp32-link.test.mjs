@@ -473,6 +473,20 @@ test("gate boundary: age 450 moves, age 451 is STOP", () => {
   assert.equal(h2.status().lastEffectiveReason, STOP_REASON.STALE_DECISION);
 });
 
+test("stopEntries counts how many times each STOP reason was entered (a change of reason, not every tick)", () => {
+  const h = createAppHarness();
+  const R = h.handshake(0, 0);
+  h.decide("FORWARD", R, R - 451);                 // stale: STALE_DECISION entered
+  h.tick(R + 10);
+  h.tick(R + 20);                                  // same reason again: still one entry
+  assert.equal(h.status().stopEntries.STALE_DECISION, 1);
+  h.decide("FORWARD", R + 30, R + 30);             // fresh: moves
+  assert.equal(h.last().cmd, "FORWARD");
+  h.decide("FORWARD", R + 600, R + 140);           // stale again (age 460): second entry
+  assert.equal(h.status().stopEntries.STALE_DECISION, 2);
+  assert.ok(!("FOLLOWING" in h.status().stopEntries), "a movement is not a stop reason");
+});
+
 test("gate boundary: proofEst 500 moves, 501 is STOP (token hold + RTT)", () => {
   const h = createAppHarness();
   const R = h.handshake(0, 0);                     // token received at R, rttEst 0
