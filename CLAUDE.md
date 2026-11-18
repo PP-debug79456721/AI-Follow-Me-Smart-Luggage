@@ -200,6 +200,12 @@ before Upload. Small changes are safer made inside the IDE.
   Not proven: the real MediaPipe bundle in a worker on Android Chrome (GPU in a worker, `.mjs` MIME). Re-ID/ONNX is still on the
   main thread (slower intervals in lite mode); moving it (`ort.env.wasm.proxy`) was NOT done. If the phone result is good, set
   `WORKER_DEFAULT_IN_LITE = true`. Pre-existing failures unrelated to this: tests/e2e/phase-c.e2e.mjs 7 tests (face model rows).
+- **Less main-thread work while FOLLOW is on (2026-11-18, priority: smooth motion)**: `lite-mode.js` `faceIntervalFor` skips the
+  face detector while FOLLOW is on AND a person is followed (TRACKING/SEARCHING); it runs again when the owner is LOST, during
+  enrolment or a face-crop request (nothing in the motion decision uses faces). `reidIntervalsFor` now slows Re-ID LEARNING to
+  >= 4 s while FOLLOW is on on every device (search is still slower only in lite mode). `app.js` `setStatus` no longer rewrites
+  identical text (the ESP32 card refreshes every 250 ms). Clothing identity check (`SIGNATURE_REFRESH_MS` 500 ms) is unchanged on
+  purpose: it is the gate that rejects a wrong person. Not yet measured on the phone (compare `page stall` with `lite=0&worker=1`).
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

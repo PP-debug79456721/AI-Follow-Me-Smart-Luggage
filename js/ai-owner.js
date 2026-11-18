@@ -37,7 +37,7 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
-import { LITE_MODE, personIntervalFor, reidIntervalsFor, workerModeFor } from "./lite-mode.js";
+import { LITE_MODE, faceIntervalFor, personIntervalFor, reidIntervalsFor, workerModeFor } from "./lite-mode.js";
 
 // Person detector in a Web Worker (opt-in ?worker=1): keeps the main thread free for the ESP32 link.
 import { createPersonWorkerClient } from "./person-worker-client.js";
@@ -271,7 +271,18 @@ const SLOW_INFERENCE_AVG_MS = 250;
 // ?lite=1 (phones): no face detection at all. On a phone it blocked the main
 // thread long enough to push the ESP32 link RTT above its 300 ms gate (laptop
 // on the same Wi-Fi: 10-30 ms). FACE CROP EXPORT is unavailable in lite mode.
-const FACE_INTERVAL = LITE_MODE ? Infinity : 500;
+const FACE_INTERVAL = 500;     // normal period; faceIntervalFor() turns it off in lite mode and while following
+
+function faceIntervalNow() {
+  return faceIntervalFor({
+    lite: LITE_MODE,
+    following: followActive,
+    tracking: followingSomeone(),
+    enrolling: enrolRemaining > 0,
+    cropPending: cropRequest !== null,
+    normalMs: FACE_INTERVAL
+  });
+}
 
 // Minimum detector score for a person box. The bench camera (low angle, backlit)
 // often scores the owner 0.50-0.66, so 0.5 dropped boxes and the tracker went SEARCHING.
@@ -2234,7 +2245,10 @@ function processFrame(timestamp) {
 
     let faceList = [];
 
-    if (faceDetector && timestamp - lastFaceInference >= FACE_INTERVAL) {
+    const faceInterval = faceIntervalNow();
+    if (faceInterval === Infinity && lastFaces.length > 0) lastFaces = [];   // no stale face boxes
+
+    if (faceDetector && timestamp - lastFaceInference >= faceInterval) {
 
       lastFaceInference = timestamp;
 

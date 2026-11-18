@@ -29,21 +29,36 @@ export function personIntervalFor({ lite, following, normalMs, idleMs }) {
 
 /*
  * Re-ID (ONNX Runtime in WASM) runs on the page's main thread, the same thread that must answer the
- * ESP32 link. On a phone, with the link gate at 300 ms, every long task shows up as RTT. So in lite mode:
- *   - the search for the owner (only while nobody is followed) runs at most once per second,
- *   - learning the followed person runs at most once per 4 s while FOLLOW is on (the album is already
- *     built by then); before FOLLOW (enrolment, choosing) it keeps the normal rate.
- * Desktop values are untouched.
+ * ESP32 link. Every long task shows up as RTT / page stall, i.e. jerky wheels. So:
+ *   - while FOLLOW is on, learning the followed person runs at most once per 4 s on every device (the
+ *     album is already built by then); before FOLLOW (enrolment, choosing) it keeps the normal rate,
+ *   - in lite mode (phones) the search for the owner (only while nobody is followed) runs at most once
+ *     per second. Desktop search values are untouched.
  */
-export const REID_LITE_FOLLOW_LEARN_MS = 4000;
+export const REID_FOLLOW_LEARN_MS = 4000;
+export const REID_LITE_FOLLOW_LEARN_MS = REID_FOLLOW_LEARN_MS;     // old name, same value
 export const REID_LITE_SEARCH_MS = 1000;
 
 export function reidIntervalsFor({ lite, following, learnMs, searchMs }) {
-  if (!lite) return { learnMs, searchMs };
   return {
-    learnMs: following ? Math.max(learnMs, REID_LITE_FOLLOW_LEARN_MS) : learnMs,
-    searchMs: Math.max(searchMs, REID_LITE_SEARCH_MS)
+    learnMs: following ? Math.max(learnMs, REID_FOLLOW_LEARN_MS) : learnMs,
+    searchMs: lite ? Math.max(searchMs, REID_LITE_SEARCH_MS) : searchMs
   };
+}
+
+/*
+ * Face detection period (ms; Infinity = do not run). Faces feed only: enrolment, the FACE CROP EXPORT,
+ * finding the owner while nobody is followed, and the cyan face boxes. No motion decision uses them, so
+ * while FOLLOW is on and a person is being followed (TRACKING / SEARCHING) the detector is skipped, which
+ * removes a main-thread task every 500 ms. It runs again the moment the follow ends, the owner is lost
+ * (LOST: the wheels are already stopped), or an enrolment / crop export is waiting for a face.
+ * Lite mode never runs it.
+ */
+export function faceIntervalFor({ lite, following, tracking, enrolling = false, cropPending = false, normalMs }) {
+  if (lite) return Infinity;
+  if (enrolling || cropPending) return normalMs;
+  if (following && tracking) return Infinity;
+  return normalMs;
 }
 
 /*

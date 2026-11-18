@@ -46,7 +46,10 @@ const stopBtn = document.getElementById("stopBtn");
 const video = document.getElementById("camera");
 
 function setStatus(id, value) {
-  document.getElementById(id).textContent = value;
+  // Skip the write when nothing changed: the ESP32 card is refreshed every 250 ms and most of the
+  // time its text is identical (a DOM write forces style work on a busy phone).
+  const element = document.getElementById(id);
+  if (element.textContent !== value) element.textContent = value;
 }
 
 /* The same camera label on the video overlay and under the video. */

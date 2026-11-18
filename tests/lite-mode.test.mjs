@@ -42,10 +42,11 @@ test("the desktop always uses the normal rate", () => {
   assert.equal(personIntervalFor({ ...base, lite: false, following: true }), 200);
 });
 
-test("R1 Re-ID intervals: desktop unchanged, phone slower, learning slower only while FOLLOW is on", async () => {
+test("R1 Re-ID intervals: learning slows while FOLLOW is on (any device), search slows only on phones", async () => {
   const { reidIntervalsFor, REID_LITE_FOLLOW_LEARN_MS, REID_LITE_SEARCH_MS } = await import("../js/lite-mode.js");
   const base = { learnMs: 1000, searchMs: 500 };
-  assert.deepEqual(reidIntervalsFor({ ...base, lite: false, following: true }), { learnMs: 1000, searchMs: 500 });
+  assert.deepEqual(reidIntervalsFor({ ...base, lite: false, following: true }),
+    { learnMs: REID_LITE_FOLLOW_LEARN_MS, searchMs: 500 });
   assert.deepEqual(reidIntervalsFor({ ...base, lite: false, following: false }), { learnMs: 1000, searchMs: 500 });
   assert.deepEqual(reidIntervalsFor({ ...base, lite: true, following: false }),
     { learnMs: 1000, searchMs: REID_LITE_SEARCH_MS });
@@ -72,4 +73,22 @@ test("L-W1 the person worker is opt-in: only ?worker=1 turns it on while the def
 test("L-W2 when the default is switched on later it applies to lite mode only", () => {
   assert.equal(workerModeFor("", true, true), true);
   assert.equal(workerModeFor("", false, true), false);
+});
+
+test("FI1 face detection is skipped only while FOLLOW is on and somebody is followed", async () => {
+  const { faceIntervalFor } = await import("../js/lite-mode.js");
+  const base = { lite: false, normalMs: 500 };
+  assert.equal(faceIntervalFor({ ...base, following: false, tracking: false }), 500);
+  assert.equal(faceIntervalFor({ ...base, following: false, tracking: true }), 500);   // FOLLOW off: normal
+  assert.equal(faceIntervalFor({ ...base, following: true, tracking: false }), 500);   // owner lost: searching by face
+  assert.equal(faceIntervalFor({ ...base, following: true, tracking: true }), Infinity);
+});
+
+test("FI2 enrolment and a face crop export always get face detection; lite never runs it", async () => {
+  const { faceIntervalFor } = await import("../js/lite-mode.js");
+  const base = { normalMs: 500, following: true, tracking: true };
+  assert.equal(faceIntervalFor({ ...base, lite: false, enrolling: true }), 500);
+  assert.equal(faceIntervalFor({ ...base, lite: false, cropPending: true }), 500);
+  assert.equal(faceIntervalFor({ ...base, lite: true, following: false, tracking: false }), Infinity);
+  assert.equal(faceIntervalFor({ ...base, lite: true, enrolling: true }), Infinity);
 });
