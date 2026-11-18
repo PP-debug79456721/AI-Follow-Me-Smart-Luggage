@@ -1852,9 +1852,13 @@ export function getMotionDecision() {
   return lastMotion;
 }
 
+// The decision uses the owner's box moved ahead by the measured speed (person-tracker getPredictedTarget):
+// the last detection is 100-350 ms old, so the raw box makes turns late. ?predict=0 switches it off.
+const PREDICT_MOTION = new URLSearchParams(location.search).get("predict") !== "0";
+
 function publishMotion() {
 
-  const target = tracker.getTarget();
+  const target = PREDICT_MOTION ? tracker.getPredictedTarget(lastFrameTimestamp) : tracker.getTarget();
 
   // No selection (or stopped) means STOP, with the camera state as input.
   lastMotion = decideMotion(

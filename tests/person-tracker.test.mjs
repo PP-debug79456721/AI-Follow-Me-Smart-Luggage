@@ -393,3 +393,84 @@ test("clientPointToVideo maps through letterbox bars", () => {
   assert.equal(clientPointToVideo(210, 40, rect, 640, 480), null);   // on the bar
   assert.equal(clientPointToVideo(210, 220, rect, 0, 0), null);      // size unknown
 });
+
+// --------------------------------------------------
+// Motion prediction for the decision (getPredictedTarget)
+// --------------------------------------------------
+
+/* Owner walking right at 0.2 px/ms (200 px/s): x = 100 at t=0, 130 at 150, 160 at 300 ... */
+function walkingOwner() {
+  const tracker = trackerWithSelection(person(100, 100), 0);
+  for (const [t, x] of [[150, 130], [300, 160], [450, 190]]) tracker.update([person(x, 100)], t, W, H);
+  return tracker;
+}
+
+test("PR1 a moving owner is predicted ahead of the last detected box; lastSeenMs stays the real time", () => {
+  const tracker = walkingOwner();
+  const raw = tracker.getTarget();
+  const predicted = tracker.getPredictedTarget(450 + 200);        // 200 ms after the last detection
+  assert.equal(predicted.lastSeenMs, 450);
+  assert.deepEqual(predicted.rawBox, raw.box);
+  assert.ok(predicted.box.originX > raw.box.originX + 15, `moved ahead: ${predicted.box.originX} vs ${raw.box.originX}`);
+  assert.ok(predicted.box.originX < raw.box.originX + 40, "damped: less than the full 0.2 px/ms * 200 ms");
+  assert.equal(predicted.box.originY, raw.box.originY);
+});
+
+test("PR2 a standing owner (no speed) is not moved; prediction at the detection time is the raw box", () => {
+  const tracker = trackerWithSelection(person(100, 100), 0);
+  tracker.update([person(100, 100)], 150, W, H);
+  tracker.update([person(100, 100)], 300, W, H);
+  assert.deepEqual(tracker.getPredictedTarget(500).box, tracker.getTarget().box);
+  const walking = walkingOwner();
+  assert.deepEqual(walking.getPredictedTarget(450).box, walking.getTarget().box);
+});
+
+test("PR3 the prediction never reaches further than the horizon (250 ms) or the shift cap (12 % of the frame)", () => {
+  const tracker = walkingOwner();
+  const at250 = tracker.getPredictedTarget(450 + 250).box.originX;
+  assert.equal(tracker.getPredictedTarget(450 + 5000).box.originX, at250);
+
+  const fast = trackerWithSelection(person(100, 100), 0);
+  fast.update([person(250, 100)], 150, W, H);                      // 1 px/ms
+  const shift = fast.getPredictedTarget(150 + 250).box.originX - 250;
+  assert.ok(shift <= W * 0.12 + 1e-9, `shift ${shift}`);
+});
+
+test("PR4 no speed after a long gap, after the target was not matched, or after a jump to another place", () => {
+  const gap = trackerWithSelection(person(100, 100), 0);
+  gap.update([person(130, 100)], 900, W, H);                       // 900 ms apart: speed unknown
+  assert.deepEqual(gap.getPredictedTarget(1100).box, gap.getTarget().box);
+
+  const lost = walkingOwner();
+  lost.update([], 600, W, H);                                      // not matched now
+  assert.equal(lost.getTarget().matched, false);
+  assert.deepEqual(lost.getPredictedTarget(700).box, lost.getTarget().box);
+
+  const jump = trackerWithSelection(person(20, 100), 0);
+  jump.update([person(300, 100)], 100, W, H);                      // 280 px in 100 ms: another person?
+  assert.deepEqual(jump.getPredictedTarget(250).box, jump.getTarget().box);
+});
+
+test("PR5 a growing box (owner walking toward the camera) is predicted larger, within 0.7x-1.4x", () => {
+  const tracker = trackerWithSelection(person(100, 100, 160, 300), 0);
+  tracker.update([person(95, 90, 170, 320)], 150, W, H);
+  tracker.update([person(90, 80, 180, 340)], 300, W, H);
+  const raw = tracker.getTarget().box;
+  const predicted = tracker.getPredictedTarget(300 + 200).box;
+  assert.ok(predicted.height > raw.height && predicted.height <= raw.height * 1.4);
+  assert.ok(Math.abs(predicted.width / predicted.height - raw.width / raw.height) < 1e-9, "aspect ratio kept");
+});
+
+test("PR6 nothing selected gives null", () => {
+  const tracker = startTracker();
+  assert.equal(tracker.getPredictedTarget(100), null);
+});
+
+test("PR7 the predicted box never leaves the frame (the decision would call that invalid and STOP)", () => {
+  const tracker = trackerWithSelection(person(380, 100), 0);       // right edge at 540 of 640
+  tracker.update([person(420, 100)], 150, W, H);
+  tracker.update([person(460, 100)], 300, W, H);                   // right edge at 620, still moving right
+  const predicted = tracker.getPredictedTarget(300 + 250).box;
+  assert.ok(predicted.originX + predicted.width <= W + 1e-9, `right edge ${predicted.originX + predicted.width}`);
+  assert.ok(predicted.originX >= tracker.getTarget().box.originX, "still not moved backwards");
+});

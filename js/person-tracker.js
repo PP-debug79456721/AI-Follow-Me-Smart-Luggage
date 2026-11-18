@@ -50,8 +50,19 @@ const DEFAULTS = Object.freeze({
   maxCenterDistRatio: 0.6,  // fallback: centre distance / sqrt(box area)
   glideDistRatio: 1.0,      // looser limit used only to animate drawn boxes
   tapPaddingRatio: 0.04,    // forgiveness around a box when tapping
-  smoothMs: 400             // boxes glide to a new detection over this time
+  smoothMs: 400,            // boxes glide to a new detection over this time
+  // Motion prediction for the DECISION (getPredictedTarget): the last detection is 100-350 ms old when the
+  // wheels use it, so the owner has already moved on. Extrapolate with the measured speed, capped.
+  velocityMaxGapMs: 600,    // two detections further apart than this give no speed
+  velocityAlpha: 0.6,       // weight of the newest speed sample (rest: previous speed)
+  predictHorizonMs: 250,    // never extrapolate further than this
+  predictGain: 0.7,         // damped: a person who stops must not be overshot
+  predictMaxShiftRatio: 0.12 // largest shift of the centre, as a part of the frame size
 });
+
+function clamp(value, low, high) {
+  return Math.min(high, Math.max(low, value));
+}
 
 function area(box) {
   return Math.max(0, box.width) * Math.max(0, box.height);
@@ -178,6 +189,48 @@ export function createPersonTracker(options = {}) {
     if (distance > maxDistRatio) return { ok: false };
 
     return { ok: true, overlap, distance };
+  }
+
+  /*
+   * Speed of the followed box between two detections (pixels per ms), smoothed with the previous speed.
+   * null = unknown: the target was not matched before, the detections are too far apart, or the box
+   * jumped (probably another person), so nothing is extrapolated.
+   */
+  function estimateVelocity(oldBox, newBox, dtMs, previous) {
+
+    if (!(dtMs > 0) || dtMs > config.velocityMaxGapMs || !frame.width) return null;
+
+    const a = center(oldBox);
+    const b = center(newBox);
+
+    if (Math.abs(b.x - a.x) > frame.width * 0.35 || Math.abs(b.y - a.y) > frame.height * 0.35) return null;
+
+    const sample = {
+      vx: (b.x - a.x) / dtMs,
+      vy: (b.y - a.y) / dtMs,
+      vh: (newBox.height - oldBox.height) / dtMs
+    };
+
+    if (!previous) return sample;
+
+    const alpha = config.velocityAlpha;
+    return {
+      vx: alpha * sample.vx + (1 - alpha) * previous.vx,
+      vy: alpha * sample.vy + (1 - alpha) * previous.vy,
+      vh: alpha * sample.vh + (1 - alpha) * previous.vh
+    };
+  }
+
+  function copyTarget() {
+    return {
+      id: selected.id,
+      state,
+      matched: selected.matched,
+      box: copyBox(selected.box),
+      lastSeenMs: selected.lastSeenMs,
+      frameWidth: frame.width,
+      frameHeight: frame.height
+    };
   }
 
   /* The box as drawn at time now: gliding from its old place to its target. */
@@ -366,6 +419,10 @@ export function createPersonTracker(options = {}) {
         } else if (best) {
           const hit = detections[best.index];
           hit.selected = true;
+          selected.velocity = estimateVelocity(
+            selected.box, hit.box, now - selected.lastSeenMs,
+            selected.matched ? selected.velocity : null
+          );
           selected.prevBox = selected.box;
           selected.box = copyBox(hit.box);
           selected.score = hit.score;
@@ -555,14 +612,48 @@ export function createPersonTracker(options = {}) {
 
       if (!selected) return null;
 
+      return copyTarget();
+    },
+
+    /*
+     * Like getTarget(), but the box is moved ahead by the measured speed for the time since it was
+     * detected (at most predictHorizonMs, damped by predictGain, shift capped). Used for the motion
+     * DECISION only; lastSeenMs stays the real detection time, so the age checks stay honest.
+     * Without a known speed, or while the target is not matched, it is the same as getTarget().
+     * `rawBox` is the last detected box.
+     */
+    getPredictedTarget(now, { horizonMs = config.predictHorizonMs, gain = config.predictGain } = {}) {
+
+      if (!selected) return null;
+
+      const target = copyTarget();
+      const v = selected.velocity;
+
+      if (!selected.matched || !v || !Number.isFinite(now)) return target;
+
+      const dt = clamp(now - selected.lastSeenMs, 0, horizonMs);
+      if (dt <= 0) return target;
+
+      const raw = target.box;
+      const c = center(raw);
+      const maxShift = frame.width * config.predictMaxShiftRatio;
+      const dx = clamp(v.vx * dt * gain, -maxShift, maxShift);
+      const dy = clamp(v.vy * dt * gain, -maxShift, maxShift);
+      const scale = clamp(1 + (v.vh * dt * gain) / raw.height, 0.7, 1.4);
+      const width = raw.width * scale;
+      const height = raw.height * scale;
+
+      // The motion decision treats a box outside the frame as invalid (STOP): never predict the owner
+      // out of the picture. Allowed range: the frame, or where the raw box already is if it touches the edge.
+      const originX = clamp(c.x + dx - width / 2,
+        Math.min(raw.originX, 0), Math.max(raw.originX, frame.width - width));
+      const originY = clamp(c.y + dy - height / 2,
+        Math.min(raw.originY, 0), Math.max(raw.originY, frame.height - height));
+
       return {
-        id: selected.id,
-        state,
-        matched: selected.matched,
-        box: copyBox(selected.box),
-        lastSeenMs: selected.lastSeenMs,
-        frameWidth: frame.width,
-        frameHeight: frame.height
+        ...target,
+        box: { originX, originY, width, height },
+        rawBox: raw
       };
     },
 

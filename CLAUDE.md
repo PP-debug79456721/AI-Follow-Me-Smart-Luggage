@@ -216,6 +216,12 @@ before Upload. Small changes are safer made inside the IDE.
   the 100 ms frame gate; the 500 ms shown before FOLLOW in lite mode is the IDLE period, not a fault. (5) Dropouts: DEMO mode now also
   uses `rttGateMs 450` (normal 300); the device-side proof limit (500 ms) and the lease still apply. Root cause of Wi-Fi drops
   (AUTH_EXPIRE, rssi -57..-71) is signal/hotspot, not code. Nothing here is measured on the phone/board yet.
+- **Motion prediction for the decision (2026-11-18, `?predict=0` turns it off)**: `person-tracker.js` keeps the owner's speed between
+  matched detections (`estimateVelocity`: no speed after a gap > 600 ms, an unmatched step or a jump > 35 % of the frame) and
+  `getPredictedTarget(now)` moves the box ahead by speed x time since the detection (<= 250 ms, gain 0.7, shift <= 12 % of the frame,
+  never out of the frame). `ai-owner.js publishMotion` feeds the decision with it; `lastSeenMs` stays the real detection time, so the
+  link's age checks are unchanged. Unit tests PR1-PR7 in `tests/person-tracker.test.mjs`. NOT yet tried on the bench: if the luggage
+  overshoots turns or oscillates, open the page with `?predict=0` to compare.
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the
