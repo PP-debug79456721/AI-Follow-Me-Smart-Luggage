@@ -16,7 +16,9 @@ import {
   cleanProfileName,
   parseProfileMeta,
   bestProfileScore,
-  looksLikeOtherProfile
+  looksLikeOtherProfile,
+  learnEnabledFromSearch,
+  autoLearnAllowed
 } from "../js/owner-profiles.js";
 
 test("profile 1 keeps the original keys; profiles 2-3 get owner.p2./owner.p3.", () => {
@@ -86,4 +88,33 @@ test("a person is refused when another profile matches at least as well", () => 
   assert.equal(looksLikeOtherProfile(0.7, { name: "B", score: 0.6 }, t), false);  // own higher
   assert.equal(looksLikeOtherProfile(0.1, { name: "B", score: 0.3 }, t), false);  // other below threshold
   assert.equal(looksLikeOtherProfile(0.5, null, t), false);                       // no other profile
+});
+
+test("?learn=0 turns automatic learning off; anything else keeps it on", () => {
+  assert.equal(learnEnabledFromSearch("?learn=0"), false);
+  assert.equal(learnEnabledFromSearch("?modelMode=development&learn=0"), false);
+  assert.equal(learnEnabledFromSearch(""), true);
+  assert.equal(learnEnabledFromSearch(undefined), true);
+  assert.equal(learnEnabledFromSearch("?learn=1"), true);
+  assert.equal(learnEnabledFromSearch("?learn=false"), true);   // only "0" turns it off
+});
+
+test("automatic learning: tapped person yes; recognition lock only when face or Re-ID confirmed it", () => {
+  const base = { learnEnabled: true, targetId: 7, lockedId: 7, lockedProfile: 0, activeProfile: 0 };
+  assert.equal(autoLearnAllowed({ ...base, lockedHow: "Re-ID" }), true);
+  assert.equal(autoLearnAllowed({ ...base, lockedHow: "ใบหน้า" }), true);
+  assert.equal(autoLearnAllowed({ ...base, lockedHow: "เสื้อผ้า" }), false);   // clothing alone: never
+  assert.equal(autoLearnAllowed({ ...base, lockedHow: "" }), false);
+  assert.equal(autoLearnAllowed({ ...base, lockedHow: "Re-ID", lockedProfile: 1 }), false);   // lock for another profile
+  assert.equal(autoLearnAllowed({ ...base, targetId: 8, lockedHow: "เสื้อผ้า" }), true);  // user tapped someone else
+  assert.equal(autoLearnAllowed({ ...base, targetId: 8, lockedId: null, lockedHow: "" }), true);
+  assert.equal(autoLearnAllowed({ ...base, targetId: null, lockedHow: "Re-ID" }), false);  // nobody followed
+});
+
+test("?learn=0 blocks automatic learning in every case", () => {
+  for (const lockedHow of ["Re-ID", "ใบหน้า", "เสื้อผ้า"]) {
+    for (const targetId of [7, 8]) {
+      assert.equal(autoLearnAllowed({ learnEnabled: false, targetId, lockedId: 7, lockedProfile: 0, activeProfile: 0, lockedHow }), false);
+    }
+  }
 });

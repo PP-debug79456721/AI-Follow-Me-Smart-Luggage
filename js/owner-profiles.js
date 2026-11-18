@@ -59,3 +59,28 @@ export function bestProfileScore(profiles, scoreOf) {
 export function looksLikeOtherProfile(ownScore, other, threshold) {
   return Boolean(other && other.score >= threshold && !(ownScore > other.score));
 }
+
+/* Automatic learning switch from the page address: ?learn=0 turns it off. */
+export function learnEnabledFromSearch(search) {
+  try {
+    return new URLSearchParams(search ?? "").get("learn") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/*
+ * May the followed person be learned AUTOMATICALLY into the active profile
+ * (Re-ID and clothing albums)? Explicit actions (ENROL, REMEMBER CLOTHES,
+ * ADD VIEW) are not affected.
+ *   - never with ?learn=0;
+ *   - a person the user tapped: yes (the user chose them);
+ *   - a person locked by recognition: only when that lock is for the active
+ *     profile and was confirmed by face or Re-ID, never by clothing alone.
+ */
+export function autoLearnAllowed({ learnEnabled, targetId, lockedId, lockedProfile, activeProfile, lockedHow }) {
+  if (!learnEnabled) return false;
+  if (targetId === null || targetId === undefined) return false;
+  if (targetId !== lockedId) return true;
+  return lockedProfile === activeProfile && (lockedHow === "Re-ID" || lockedHow === "ใบหน้า");
+}

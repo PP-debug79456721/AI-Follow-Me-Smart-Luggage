@@ -43,11 +43,17 @@ import { LITE_MODE, personIntervalFor } from "./lite-mode.js";
 import { EDUCATION_HOSTS, ownerFeatureSet } from "./deploy-config.js";
 import { resolveModelUseMode } from "./embedding/model-policy.js";
 
-// Pure: user profile keys, names and the "another user" rule.
+// Pure: user profile keys, names, the "another user" rule and the learning rule.
 import {
   PROFILE_STORE, PROFILE_COUNT, profileKey, cleanProfileName,
-  parseProfileMeta, bestProfileScore, looksLikeOtherProfile
+  parseProfileMeta, bestProfileScore, looksLikeOtherProfile,
+  learnEnabledFromSearch, autoLearnAllowed
 } from "./owner-profiles.js";
+
+// ?learn=0: no AUTOMATIC learning while following (for repeatable tests).
+// ENROL, REMEMBER CLOTHES and ADD VIEW still work.
+const LEARN_ENABLED = learnEnabledFromSearch(location.search);
+if (!LEARN_ENABLED) console.info("[LEARN OFF] automatic Re-ID / clothing learning is off (?learn=0)");
 
 const MEDIAPIPE_VERSION = "0.10.35";
 
@@ -1100,6 +1106,19 @@ async function reidVector(box) {
   return Array.from(v);
 }
 
+/* Automatic learning allowed for the person followed right now? (owner-profiles.js) */
+function followedLearnAllowed() {
+  const target = tracker.getTarget();
+  return autoLearnAllowed({
+    learnEnabled: LEARN_ENABLED,
+    targetId: target ? target.id : null,
+    lockedId: lockedSelectionId,
+    lockedProfile,
+    activeProfile: profileMeta.active,
+    lockedHow
+  });
+}
+
 /* Learn the followed person (TRACKING, alone) into the Re-ID album. */
 function reidLearn(timestamp, box, force = false, reset = false) {
   if (!REID_FEATURES || reidBusy) return;
@@ -1118,6 +1137,8 @@ function reidLearn(timestamp, box, force = false, reset = false) {
       }
       reidScore = vectorAlbumScore(reidAlbum, v);
       checkLabelUpgrade(v);
+      // Scoring and the label check above always run; learning only when allowed.
+      if (!followedLearnAllowed()) return;
       const canAdd = timestamp - lastReidAddAt >= CLOTH_ADD_GAP_MS;
       const r = learnIntoVectorAlbum(reidAlbum, v,
         canAdd ? {} : { newViewAbove: REID_ALBUM_DEFAULTS.sameViewAbove });
@@ -1211,6 +1232,8 @@ function ownerStatusText() {
     parts.push(t);
   }
   if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
+  if (!LEARN_ENABLED) parts.push("ไม่เรียนรู้อัตโนมัติ (learn=0)");
+  else if (followingSomeone() && !followedLearnAllowed()) parts.push("รอยืนยันตัวตนก่อนเรียนรู้");
   if (ownerLastEvent) parts.push(ownerLastEvent + score);
   return parts.join(" · ");
 }
@@ -1304,7 +1327,9 @@ function ownerAfterPersons(timestamp) {
         reidLearn(timestamp, target.box);
       }
 
-      if (sig) {
+      // Clothing is learned only when allowed: never with ?learn=0, never
+      // while the lock rests on clothing colours alone.
+      if (sig && followedLearnAllowed()) {
         // New views (owner turned around, jacket opened) are added at most
         // every 2 s; very different crops are not learned.
         const canAdd = timestamp - lastClothAddAt >= CLOTH_ADD_GAP_MS;
