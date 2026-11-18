@@ -80,7 +80,15 @@ constexpr const char* kWsPath = "/ws";
 // off. Both can be on at once, but they share one radio and slow each other down, so pick one. With BLE
 // on, kEnableWifi=false avoided the endless Wi-Fi scanning (BLE RTT 100-300 ms -> 60-291 ms).
 constexpr bool kEnableWifi = true;
-constexpr bool kEnableBle = false;
+
+// BLE is a PREPROCESSOR switch, not only a constexpr: with FOLLOW_WITH_BLE 0 the whole BLE library is
+// left out of the build. (With a plain constexpr false the BLE objects were still linked and the sketch
+// reached 114 % of the default 1.3 MB partition.) 1 = BLE compiled in: then set Tools -> Partition Scheme ->
+// "Huge APP (3MB No OTA/1MB SPIFFS)" or the sketch does not fit.
+#ifndef FOLLOW_WITH_BLE
+#define FOLLOW_WITH_BLE 0
+#endif
+constexpr bool kEnableBle = (FOLLOW_WITH_BLE != 0);
 constexpr const char* kBleName = "FollowMe-Luggage";
 constexpr unsigned kBleMaxChunk = 180;   // largest notification payload (bytes), also limited by the MTU
 static_assert(kEnableWifi || kEnableBle, "enable at least one transport");

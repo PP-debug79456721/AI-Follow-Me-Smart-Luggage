@@ -29,7 +29,9 @@
 #include "sonar_sources.h"
 #include "ws_server.h"
 #include "transport_router.h"
+#if FOLLOW_WITH_BLE
 #include "ble_server.h"
+#endif
 
 #if !__has_include("wifi_secrets.h")
 #error "Copy wifi_secrets.example.h to wifi_secrets.h and fill in your 2.4 GHz network."
@@ -66,7 +68,9 @@ EspRandom rng;
 TransportRouter router;             // the protocol's reply sink
 WsChannel wsChannel;
 KernelTarget kernelTarget;
+#if FOLLOW_WITH_BLE
 BleServer bleServer;
+#endif
 int wsChannelId = -1;
 int bleChannelId = -1;
 BtsMotorHal hal;                    // real BTS7960 + relay driver (written only by the kernel)
@@ -101,6 +105,7 @@ struct App : WsServer::Handler {
 };
 App app;
 
+#if FOLLOW_WITH_BLE
 struct BleApp : BleServer::Handler {
   void onText(const char* text, size_t length, double now) override {
     router.onText(bleChannelId, text, length, now);
@@ -108,6 +113,7 @@ struct BleApp : BleServer::Handler {
   void onClosed(double now) override { router.onClosed(bleChannelId, now); }
 };
 BleApp bleApp;
+#endif
 
 bool wasUp = false;
 bool serverStarted = false;
@@ -238,13 +244,13 @@ void setup() {
 
   // BLE is started before the protocol objects: esp_random() is a true random source only while
   // the Wi-Fi or Bluetooth radio is active.
-  if (kEnableBle) {
-    bleServer.begin(kBleName);
-    Serial.print("BLE: advertising as ");
-    Serial.println(kBleName);
-  } else {
-    Serial.println("BLE: OFF (kEnableBle = false)");
-  }
+#if FOLLOW_WITH_BLE
+  bleServer.begin(kBleName);
+  Serial.print("BLE: advertising as ");
+  Serial.println(kBleName);
+#else
+  Serial.println("BLE: OFF (compiled out, FOLLOW_WITH_BLE 0 in config.h)");
+#endif
 
   // Bench (phone on Wi-Fi): the connection may be silent up to 1200 ms before the
   // session latches (was 600). Motion still stops by the lease (evidenceMaxMs 700)
@@ -261,7 +267,9 @@ void setup() {
   wsServer = new WsServer(kWsPort, kWsPath, app);
   wsChannel.server = wsServer;
   wsChannelId = router.addChannel(&wsChannel);
+#if FOLLOW_WITH_BLE
   bleChannelId = router.addChannel(&bleServer);
+#endif
   router.setTarget(&kernelTarget);
 
   kernel->init(nowMs());
@@ -279,7 +287,9 @@ void loop() {
     wifiMaintain(now);
     if (wsServer) wsServer->poll(now);
   }
-  if (kEnableBle) bleServer.poll(now, bleApp);
+#if FOLLOW_WITH_BLE
+  bleServer.poll(now, bleApp);
+#endif
 
   // Sensor source (null in this phase): feeds the interlock when a measurement completes.
   for (int i = 0; i < Interlock::kSensors; i += 1) {
@@ -344,7 +354,8 @@ void loop() {
         Serial.print(" rssi=");
         Serial.print(WiFi.RSSI());
       }
-      if (kEnableBle) {
+#if FOLLOW_WITH_BLE
+      {
         Serial.print(" ble=");
         Serial.print(bleServer.connected() ? 1 : 0);
         Serial.print("/");
@@ -358,6 +369,7 @@ void loop() {
         Serial.print("/");
         Serial.print(bleServer.droppedOut());
       }
+#endif
     }
     Serial.print(" maxgap=");
     Serial.print(static_cast<int>(maxLoopGapMs));

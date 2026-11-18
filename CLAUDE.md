@@ -167,7 +167,7 @@ before Upload. Small changes are safer made inside the IDE.
   `kUltrasonicInstalled false` (2x AB043 = HC-SR04 planned: trig 18/19, echo 34/35 via 1k/2k; true without the
   sensors wired = NO_ECHO blocks all motion), `kStopDistanceMm 500`.
   Serial adds `sonar=<mm|clear|NO_ECHO>/<...>` when the sonar is on.
-- **Transports (2026-11-17)**: `kEnableWifi` / `kEnableBle` in `config.h` (default since 2026-11-18: Wi-Fi ON, BLE OFF, the owner's choice; BLE kept for later). Wi-Fi WebSocket
+- **Transports (2026-11-17)**: `kEnableWifi` / `kEnableBle` in `config.h` (default since 2026-11-18: Wi-Fi ON, BLE OFF, the owner's choice; BLE kept for later). BLE is switched with the PREPROCESSOR define `FOLLOW_WITH_BLE` in `config.h` (0 = the BLE library is not built at all: with only a constexpr the BLE objects were still linked and the sketch was 114 % of the default 1.3 MB partition; 1 = needs Partition Scheme Huge APP). The name avoids ENABLE/UNLOCK on purpose: tests/firmware-host F5 forbids `#if ...ENABLE...` switches in the sketch. Wi-Fi WebSocket
   and Bluetooth LE feed the SAME protocol + safety kernel through `transport_router.h` (replies go back to the
   channel that sent the message; ANY channel closing stops the motors). BLE = `ble_server.h`, Nordic UART service
   (`6E400001-...` service, `6E400002` RX write, `6E400003` TX notify), one JSON message per line ended by `\n`,
