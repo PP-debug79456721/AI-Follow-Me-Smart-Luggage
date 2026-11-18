@@ -37,6 +37,7 @@ export const BLE_DEFAULTS = Object.freeze({
   openTimeoutMs: 30000       // the device chooser may stay open for a while
 });
 
+const STATS_WINDOW_MS = 10000;
 const CONNECTING = 0;
 const OPEN = 1;
 const CLOSED = 3;
@@ -102,7 +103,8 @@ export function isBleSupported(bluetooth = globalThis.navigator?.bluetooth) {
  */
 export function createBleSocketFactory({
   bluetooth = globalThis.navigator?.bluetooth,
-  options = {}
+  options = {},
+  now = () => (globalThis.performance?.now ? globalThis.performance.now() : Date.now())
 } = {}) {
 
   const defaults = { ...BLE_DEFAULTS, ...options };
@@ -124,6 +126,12 @@ export function createBleSocketFactory({
       this._lines = new LineAssembler(defaults.maxLine);
       this._queue = [];
       this._writing = false;
+      this._now = now;
+      this._writeSamples = [];      // { at, writeMs, sendMs|null } for the last STATS_WINDOW_MS
+      this._rxSamples = [];         // { at, assemblyMs }
+      this._lineStart = null;
+      this._chunksLast = 0;
+      this._messages = 0;
       this._closed = false;
       this._device = null;
       this._rx = null;
@@ -196,13 +204,67 @@ export function createBleSocketFactory({
       if (!view || this.readyState !== OPEN) return;
       const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
       const text = this._decoder.decode(bytes, { stream: true });
-      this._lines.feed(text, line => this._emit("message", { data: line }));
+      const arrivedAt = this._now();
+      if (this._lines.buffer.length === 0) this._lineStart = arrivedAt;   // this piece starts a new line
+      this._lines.feed(text, line => {
+        this._noteRxLine(arrivedAt, arrivedAt - (this._lineStart ?? arrivedAt));
+        this._lineStart = arrivedAt;
+        this._emit("message", { data: line });
+      });
+    }
+
+    /* ---- timing diagnostics (shown on the ESP32 card): where does the round trip go? ---- */
+
+    _prune(list, at) {
+      while (list.length && at - list[0].at > STATS_WINDOW_MS) list.shift();
+    }
+
+    _noteWrite(at, writeMs, sendMs) {
+      this._writeSamples.push({ at, writeMs, sendMs });
+      this._prune(this._writeSamples, at);
+    }
+
+    _noteRxLine(at, assemblyMs) {
+      this._rxSamples.push({ at, assemblyMs });
+      this._prune(this._rxSamples, at);
+    }
+
+    /*
+     * Last 10 s. writeMs = one writeValueWithoutResponse() call (queued -> accepted by the phone's
+     * Bluetooth stack); sendMs = the whole message (send() -> its last piece accepted); rxAssemblyMs =
+     * first piece of a reply -> its last piece (0 when a reply arrives as one notification).
+     */
+    getStats() {
+      const at = this._now();
+      this._prune(this._writeSamples, at);
+      this._prune(this._rxSamples, at);
+      const writes = this._writeSamples;
+      const sends = writes.filter(sample => sample.sendMs !== null);
+      const avg = (list, pick) => (list.length ? list.reduce((sum, item) => sum + pick(item), 0) / list.length : null);
+      const max = (list, pick) => (list.length ? Math.max(...list.map(pick)) : null);
+      return {
+        chunkBytes: this._chunkSize,
+        chunksPerMessage: this._chunksLast,
+        messages: this._messages,
+        writeAvgMs: avg(writes, item => item.writeMs),
+        writeMaxMs: max(writes, item => item.writeMs),
+        sendAvgMs: avg(sends, item => item.sendMs),
+        sendMaxMs: max(sends, item => item.sendMs),
+        rxLines: this._rxSamples.length,
+        rxAssemblyMaxMs: max(this._rxSamples, item => item.assemblyMs)
+      };
     }
 
     send(data) {
       if (this.readyState !== OPEN) throw new Error("BLE socket is not open");
       const bytes = this._encoder.encode(`${data}\n`);
-      for (const chunk of chunkBytes(bytes, this._chunkSize)) this._queue.push(chunk);
+      const startedAt = this._now();
+      const chunks = chunkBytes(bytes, this._chunkSize);
+      chunks.forEach((chunk, index) => {
+        this._queue.push({ bytes: chunk, startedAt, last: index === chunks.length - 1 });
+      });
+      this._messages += 1;
+      this._chunksLast = chunks.length;
       this.bufferedAmount += bytes.length;
       this._drain();
     }
@@ -212,13 +274,16 @@ export function createBleSocketFactory({
       this._writing = true;
       try {
         while (this._queue.length > 0 && this.readyState === OPEN) {
-          const chunk = this._queue.shift();
+          const item = this._queue.shift();
+          const writeStart = this._now();
           if (typeof this._rx.writeValueWithoutResponse === "function") {
-            await this._rx.writeValueWithoutResponse(chunk);
+            await this._rx.writeValueWithoutResponse(item.bytes);
           } else {
-            await this._rx.writeValue(chunk);
+            await this._rx.writeValue(item.bytes);
           }
-          this.bufferedAmount = Math.max(0, this.bufferedAmount - chunk.length);
+          const writeEnd = this._now();
+          this._noteWrite(writeEnd, writeEnd - writeStart, item.last ? writeEnd - item.startedAt : null);
+          this.bufferedAmount = Math.max(0, this.bufferedAmount - item.bytes.length);
         }
       } catch (error) {
         this._fail(error);

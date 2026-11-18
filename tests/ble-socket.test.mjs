@@ -34,7 +34,7 @@ async function until(predicate, label, ms = 3000) {
 
 /* ---------- a fake Web Bluetooth peripheral ---------- */
 
-function createFakeBluetooth({ writeLimit = 20, notifyChunk = 20, onLine = () => {}, failRequest = null } = {}) {
+function createFakeBluetooth({ writeLimit = 20, notifyChunk = 20, onLine = () => {}, failRequest = null, writeDelayMs = 0 } = {}) {
   const state = {
     requests: 0,
     connects: 0,
@@ -51,6 +51,7 @@ function createFakeBluetooth({ writeLimit = 20, notifyChunk = 20, onLine = () =>
     async writeValueWithoutResponse(chunk) {
       if (!state.gattConnected) throw new Error("not connected");
       if (chunk.length > writeLimit) throw new Error(`write of ${chunk.length} bytes exceeds ${writeLimit}`);
+      if (writeDelayMs > 0) await new Promise(resolve => setTimeout(resolve, writeDelayMs));
       state.writes.push(chunk.length);
       for (const byte of chunk) {
         if (byte === 0x0a) {
@@ -353,4 +354,64 @@ test("B13 the session honors a socket's own open timeout (Bluetooth chooser can 
   assert.ok(timers.includes(30000));
   assert.ok(!timers.includes(3000));
   session.dispose();
+});
+
+/* ---------- timing diagnostics ---------- */
+
+test("B14 getStats shows chunk count and how long writes and whole messages took", async () => {
+  const received = [];
+  const fake = createFakeBluetooth({ writeLimit: 20, writeDelayMs: 15, onLine: line => received.push(line) });
+  const { socket } = await open(fake);
+  assert.equal(socket.getStats().writeAvgMs, null);                 // nothing sent yet
+  const message = JSON.stringify({ t: "CMD", pad: "x".repeat(60) });
+  const expectedChunks = Math.ceil((message.length + 1) / 20);       // +1 for the newline
+  socket.send(message);
+  await until(() => received.length === 1, "message delivered");
+  const stats = socket.getStats();
+  assert.equal(stats.chunksPerMessage, expectedChunks);
+  assert.equal(stats.chunkBytes, 20);
+  assert.equal(stats.messages, 1);
+  assert.ok(stats.writeMaxMs >= 10, `write max ${stats.writeMaxMs}`);
+  assert.ok(stats.sendMaxMs >= (expectedChunks - 1) * 12, `send max ${stats.sendMaxMs}`);   // writes of ~15 ms each
+  assert.ok(stats.sendMaxMs >= stats.writeMaxMs);
+});
+
+test("B15 a bigger chunk option means fewer writes per message", async () => {
+  const fake = createFakeBluetooth({ writeLimit: 244, writeDelayMs: 5 });
+  const { socket } = await open(fake, "ble://?chunk=200");
+  socket.send("y".repeat(150));
+  await until(() => fake.state.writes.length === 1, "one write");
+  assert.equal(socket.getStats().chunksPerMessage, 1);
+  assert.equal(socket.getStats().chunkBytes, 200);
+});
+
+test("B16 getStats shows how long a reply took to arrive piece by piece", async () => {
+  const fake = createFakeBluetooth();
+  const { socket, events } = await open(fake);
+  fake.notify('{"a":', 100);                                         // first piece
+  await new Promise(resolve => setTimeout(resolve, 40));
+  fake.notify('1}\n', 100);                                          // last piece 40 ms later
+  const stats = socket.getStats();
+  assert.equal(events.filter(e => e.type === "message").length, 1);
+  assert.ok(stats.rxAssemblyMaxMs >= 30, `assembly ${stats.rxAssemblyMaxMs}`);
+  assert.equal(stats.rxLines, 1);
+});
+
+test("B17 a reply that arrives as one notification has no assembly time", async () => {
+  const fake = createFakeBluetooth();
+  const { socket } = await open(fake);
+  fake.notify('{"a":1}\n', 244);
+  assert.ok(socket.getStats().rxAssemblyMaxMs < 5);
+});
+
+test("B18 old samples drop out of the 10 s window", async () => {
+  let clock = 1000;
+  const fake = createFakeBluetooth({ onLine: () => {} });
+  const factory = createBleSocketFactory({ bluetooth: fake.bluetooth, now: () => clock });
+  const socket = factory.createSocket("ble://");
+  await until(() => socket.readyState === 1, "open");
+  socket.send("{}");
+  await until(() => socket.getStats().messages === 1 && socket.getStats().writeAvgMs !== null, "stats");
+  clock += 20000;
+  assert.equal(socket.getStats().writeAvgMs, null);
 });

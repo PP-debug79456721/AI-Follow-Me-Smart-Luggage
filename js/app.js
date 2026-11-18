@@ -190,6 +190,7 @@ video.addEventListener("error", () => {
 
 let mockNetwork = null;
 const bleSockets = createBleSocketFactory();   // "ble://" = Bluetooth LE (Web Bluetooth)
+let lastBleSocket = null;                      // for the timing line on the ESP32 card
 
 const DEMO_MODE = new URLSearchParams(location.search).get("mode") === "demo";
 // Detection evidence may be up to 1.2 s old and a command may run up to 1.5 s
@@ -202,7 +203,10 @@ const session = createEsp32Session({
       mockNetwork ??= createMockDeviceNetwork();
       return mockNetwork.createSocket(url);
     }
-    if (url.startsWith("ble:")) return bleSockets.createSocket(url);
+    if (url.startsWith("ble:")) {
+      lastBleSocket = bleSockets.createSocket(url);
+      return lastBleSocket;
+    }
     return new WebSocket(url);
   },
   // Bench (phone on Wi-Fi): stalls of 0.6-1 s dropped ARM with the 600 ms
@@ -404,6 +408,18 @@ setInterval(() => {
   }
 }, 100);
 
+// BLE only: where does the round trip go? (see getStats() in ble-socket.js)
+function bleTimingLines(status) {
+  if (typeof status.url !== "string" || !status.url.startsWith("ble:") || !lastBleSocket?.getStats) return [];
+  const s = lastBleSocket.getStats();
+  const ms = value => (value === null ? "-" : Math.round(value));
+  return [
+    `ble write: ${ms(s.writeAvgMs)}/${ms(s.writeMaxMs)} ms (avg/max)   send: ${ms(s.sendAvgMs)}/${ms(s.sendMaxMs)} ms   ` +
+      `${s.chunksPerMessage} chunk(s) of ${s.chunkBytes} B`,
+    `ble reply assembly: ${ms(s.rxAssemblyMaxMs)} ms max (${s.rxLines} lines / 10 s)`
+  ];
+}
+
 function renderEspLink() {
 
   const status = session.getStatus();
@@ -437,7 +453,8 @@ function renderEspLink() {
     `sending: ${link.effective?.command ?? "-"} (${link.effective?.reason ?? "-"})`,
     `device motor: ${deviceMotorText(status)}   rtt: ${link.rttEst ?? "-"} ms`,
     `last: ${status.lastEvent ?? "-"}   resync: ${link.lastResyncReason ?? "-"}`,
-    `page stall: ${Math.round(Math.max(stallShown, stallMax))} ms   buffered: ${status.buffered ?? "-"} B   hidden: ${hiddenCount}`
+    `page stall: ${Math.round(Math.max(stallShown, stallMax))} ms   buffered: ${status.buffered ?? "-"} B   hidden: ${hiddenCount}`,
+    ...bleTimingLines(status)
   ].join("\n"));
 }
 

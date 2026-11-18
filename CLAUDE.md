@@ -182,7 +182,14 @@ before Upload. Small changes are safer made inside the IDE.
   Firmware now asks the phone for a 15-30 ms connection interval right after connecting (`kBleMinInterval/kBleMaxInterval/
   kBleLatency/kBleSupervisionTimeout`, `blereq` counts requests; the phone may refuse) and `kEnableWifi` defaults to false
   (its endless scanning shares the radio). The link's RTT gate (`rttGateMs` 300, max of the last 3 samples, esp32-link.js)
-  was NOT changed: BLE peaks near 300 ms can trigger `RTT_GATE` STOPs. Not yet measured after the connection-interval change.
+  was NOT changed: BLE peaks near 300 ms can trigger `RTT_GATE` STOPs.
+  **Measured 2026-11-18 with the interval request in place (`blereq=1`, `blemtu=247`): RTT 200-500 ms, i.e. no better.** So neither
+  the 20-byte pieces nor the connection interval request explained it. Serial then showed MOVING FORWARD (duty L 0.60 / R 0.66)
+  but 6 % of messages rejected: `PROOF_STALE` (CMD must reach the board within `proofMaxMs` 500 ms of the ACK that issued its
+  token) and `RATE_LIMITED` (two movement CMDs < `minMoveIntervalMs` 100 ms apart, e.g. delayed ones arriving together); each
+  one makes the page STOP and wait for a new token = the move-stop pulses. The ESP32 card now also shows, for `ble://`:
+  `ble write avg/max ms`, `send avg/max ms`, `chunk(s) of N B`, `ble reply assembly` (ble-socket.js `getStats()`), next to the
+  existing `page stall` (longest gap between 100 ms page timer ticks) to tell uplink, downlink and a busy page apart.
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`
   can block ~10 s and caused loop stalls, link timeouts and a task-watchdog reset.
