@@ -190,6 +190,16 @@ before Upload. Small changes are safer made inside the IDE.
   one makes the page STOP and wait for a new token = the move-stop pulses. The ESP32 card now also shows, for `ble://`:
   `ble write avg/max ms`, `send avg/max ms`, `chunk(s) of N B`, `ble reply assembly` (ble-socket.js `getStats()`), next to the
   existing `page stall` (longest gap between 100 ms page timer ticks) to tell uplink, downlink and a busy page apart.
+- **Person detector in a Web Worker (2026-11-18, opt-in `?worker=1`, NOT yet tried on a phone)**: `js/person-worker.js`
+  (classic worker: dynamic `import()` of the MediaPipe bundle, GPU then CPU), `js/person-worker-client.js` (one detection in
+  flight, `ImageBitmap` transferred, result keeps the FRAME timestamp, any worker error / 3 s unanswered detection / 5 failed
+  frames -> one-way fallback to the main-thread detector), `ai-owner.js` (`applyPersonDetections`, `requestWorkerPersons`,
+  `handlePersonWorkerFailure`), `lite-mode.js` (`workerModeFor`, `WORKER_DEFAULT_IN_LITE=false`). The PERSON DETECTION card shows
+  `GPU · WORKER` and `LAT <ms>` (capture -> result). Tests: `person-worker-client.test.mjs` (fake worker), `tests/e2e/person-worker.e2e.mjs`
+  (real worker script, FAKE MediaPipe; shows a 250 ms detector stalls the page 506 ms on the main thread, 23 ms in the worker).
+  Not proven: the real MediaPipe bundle in a worker on Android Chrome (GPU in a worker, `.mjs` MIME). Re-ID/ONNX is still on the
+  main thread (slower intervals in lite mode); moving it (`ort.env.wasm.proxy`) was NOT done. If the phone result is good, set
+  `WORKER_DEFAULT_IN_LITE = true`. Pre-existing failures unrelated to this: tests/e2e/phase-c.e2e.mjs 7 tests (face model rows).
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

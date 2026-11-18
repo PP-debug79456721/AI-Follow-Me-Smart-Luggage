@@ -37,7 +37,10 @@ import { decideMotion, MOTION_COMMAND, MOTION_REASON } from "./motion-decision.j
 // No external imports either: tells whether the camera still delivers
 // new frames.
 import { isCameraLive, getLastVideoFrameTime } from "./camera.js";
-import { LITE_MODE, personIntervalFor, reidIntervalsFor } from "./lite-mode.js";
+import { LITE_MODE, personIntervalFor, reidIntervalsFor, workerModeFor } from "./lite-mode.js";
+
+// Person detector in a Web Worker (opt-in ?worker=1): keeps the main thread free for the ESP32 link.
+import { createPersonWorkerClient } from "./person-worker-client.js";
 
 // Pure: chooses between a local vendor/ copy of the libraries/models and the CDN.
 import { describeVendorPlan, loadVendorManifest, planVendorAssets } from "./vendor-assets.js";
@@ -81,6 +84,10 @@ const ORT_CDN_BASE_URL = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VER
 // Local-first loading (see vendor-assets.js): files in vendor/ are used when vendor/vendor-manifest.json
 // lists them, otherwise (or when a local file fails to load) the CDN URLs above, exactly as before.
 const VENDOR_BASE_URL = new URL("../vendor/", import.meta.url).href;
+const WORKER_MODE = workerModeFor(location.search, LITE_MODE);
+let personWorker = null;                   // person-worker-client while the worker detector is in use
+let mpTasks = null;                        // MediaPipe tasks/vision kept for the main-thread fallback
+let mpVision = null;
 let faceModelUrl = FACE_DETECTOR_MODEL_URL;
 let personModelUrl = PERSON_DETECTOR_MODEL_URL;
 let libLabel = null;                       // "LOCAL" | "CDN" | "MIXED" once the runtime is loading
@@ -112,7 +119,7 @@ async function loadMediapipeRuntime() {
   if (plan.mediapipe.source === "local") {
     try {
       const tasks = await import(plan.mediapipe.bundleUrl);
-      return { tasks, wasmUrl: plan.mediapipe.wasmUrl };
+      return { tasks, wasmUrl: plan.mediapipe.wasmUrl, bundleUrl: plan.mediapipe.bundleUrl };
     } catch (error) {
       // For example a server that sends .mjs with the wrong content type: use the CDN instead.
       console.warn("[vendor] local MediaPipe failed to load, using the CDN:", error);
@@ -120,7 +127,7 @@ async function loadMediapipeRuntime() {
     }
   }
 
-  return { tasks: await import(MEDIAPIPE_BUNDLE_URL), wasmUrl: MEDIAPIPE_WASM_URL };
+  return { tasks: await import(MEDIAPIPE_BUNDLE_URL), wasmUrl: MEDIAPIPE_WASM_URL, bundleUrl: MEDIAPIPE_BUNDLE_URL };
 }
 
 // Each loading step (runtime, face model, person model) may take this long.
@@ -767,6 +774,90 @@ function loadEmbeddingModels() {
   return attempt;
 }
 
+// Person detector on the main thread: GPU first; if the GPU delegate cannot be created on this
+// browser/computer, fall back to CPU. Uses the MediaPipe runtime kept by loadDetectors().
+function createMainPersonDetector(delegate) {
+  return withTimeout(
+    mpTasks.ObjectDetector.createFromOptions(
+      mpVision,
+      {
+        baseOptions: {
+          modelAssetPath: personModelUrl,
+          delegate
+        },
+        runningMode: "VIDEO",
+        scoreThreshold: PERSON_SCORE_THRESHOLD,
+        maxResults: 10
+      }
+    ),
+    `Person detector (${delegate})`,
+    closeLate
+  );
+}
+
+async function createMainPersonDetectorWithFallback() {
+  try {
+    personDetector = await createMainPersonDetector("GPU");
+    personDelegate = "GPU";
+  } catch (gpuError) {
+    console.warn("Person detector: GPU unavailable, using CPU:", gpuError);
+    personDetector = await createMainPersonDetector("CPU");
+    personDelegate = "CPU";
+  }
+}
+
+// True when SOME person detector (worker or main thread) can detect.
+function hasPersonDetection() {
+  return Boolean(personDetector || personWorker);
+}
+
+// Starts the person detector in a Web Worker with the same runtime/model sources the main thread uses.
+async function startPersonWorker(runtime) {
+
+  const client = createPersonWorkerClient({
+    createWorker: () => new Worker(new URL("./person-worker.js", import.meta.url)),
+    onFailure: handlePersonWorkerFailure
+  });
+
+  await client.start({
+    bundleUrl: runtime.bundleUrl,
+    wasmUrl: runtime.wasmUrl,
+    modelUrl: personModelUrl,
+    scoreThreshold: PERSON_SCORE_THRESHOLD,
+    maxResults: 10,
+    delegates: ["GPU", "CPU"]
+  });
+
+  return client;
+}
+
+// The worker died or stopped answering: go back to the main-thread detector (same as without ?worker=1).
+function handlePersonWorkerFailure(reason) {
+
+  console.warn("[worker] person worker failed, switching to the main thread:", reason);
+
+  personWorker = null;
+  personDelegate = null;
+
+  if (!mpTasks || !mpVision) {
+    setReady(readyPerson, "ERROR (WORKER)", "bad");
+    return;
+  }
+
+  setReady(readyPerson, "LOADING (WORKER FAILED)", "warn");
+
+  createMainPersonDetectorWithFallback()
+    .then(() => {
+      setReady(readyPerson, "READY", "ok");
+      personDelegate = `${personDelegate} · MAIN (worker failed)`;
+    })
+    .catch(error => {
+      console.error("Person detector fallback failed:", error);
+      personDetector = null;
+      setReady(readyPerson, "ERROR", "bad");
+    });
+}
+
 async function loadDetectors() {
 
   aiStatus.textContent = "LOADING";
@@ -776,16 +867,20 @@ async function loadDetectors() {
 
   let vision;
   let tasks;
+  let runtime;
 
   try {
 
-    const runtime = await withTimeout(loadMediapipeRuntime(), "MediaPipe runtime");
+    runtime = await withTimeout(loadMediapipeRuntime(), "MediaPipe runtime");
     tasks = runtime.tasks;
 
     vision = await withTimeout(
       tasks.FilesetResolver.forVisionTasks(runtime.wasmUrl),
       "MediaPipe runtime"
     );
+
+    mpTasks = tasks;
+    mpVision = vision;
 
   } catch (error) {
 
@@ -832,44 +927,33 @@ async function loadDetectors() {
   }
 
   // Person detection feeds the motion decision, so it must be fast (see
-  // PERSON_INTERVAL). GPU first; if the GPU delegate cannot be created on
-  // this browser/computer, fall back to CPU.
-  const createPersonDetector = delegate => withTimeout(
-    tasks.ObjectDetector.createFromOptions(
-      vision,
-      {
-        baseOptions: {
-          modelAssetPath: personModelUrl,
-          delegate
-        },
-        runningMode: "VIDEO",
-        scoreThreshold: PERSON_SCORE_THRESHOLD,
-        maxResults: 10
-      }
-    ),
-    `Person detector (${delegate})`,
-    closeLate
-  );
-
-  try {
+  // PERSON_INTERVAL). Opt-in (?worker=1): run it in a Web Worker so the main thread
+  // stays free for the ESP32 link; any failure falls back to the main-thread detector.
+  if (WORKER_MODE) {
     try {
-      personDetector = await createPersonDetector("GPU");
-      personDelegate = "GPU";
-    } catch (gpuError) {
-      console.warn("Person detector: GPU unavailable, using CPU:", gpuError);
-      personDetector = await createPersonDetector("CPU");
-      personDelegate = "CPU";
+      personWorker = await startPersonWorker(runtime);
+      personDelegate = `${personWorker.getDelegate() ?? "?"} · WORKER`;
+      setReady(readyPerson, "READY", "ok");
+    } catch (workerError) {
+      console.warn("[worker] person worker could not start, using the main thread:", workerError);
+      personWorker = null;
     }
-    setReady(readyPerson, "READY", "ok");
-  } catch (error) {
-    console.error("Person detector load error:", error);
-    personDetector = null;
-    personDelegate = null;
-    errors.push(error);
-    setReady(readyPerson, "ERROR", "bad");
   }
 
-  if (!faceDetector && !personDetector) {
+  if (!personWorker) {
+    try {
+      await createMainPersonDetectorWithFallback();
+      setReady(readyPerson, "READY", "ok");
+    } catch (error) {
+      console.error("Person detector load error:", error);
+      personDetector = null;
+      personDelegate = null;
+      errors.push(error);
+      setReady(readyPerson, "ERROR", "bad");
+    }
+  }
+
+  if (!faceDetector && !hasPersonDetection()) {
     aiStatus.textContent = "AI ERROR";
     showAiLoadMessage(
       errors.every(error => error instanceof AiLoadTimeoutError)
@@ -880,7 +964,7 @@ async function loadDetectors() {
     throw errors[0];
   }
 
-  if (!personDetector) {
+  if (!hasPersonDetection()) {
     showAiLoadMessage(AI_LOAD_MESSAGES.PERSON_MODEL_FAILED, "bad");
   } else if (!faceDetector) {
     showAiLoadMessage(AI_LOAD_MESSAGES.FACE_MODEL_FAILED, "warn");
@@ -890,17 +974,17 @@ async function loadDetectors() {
 
   // Detectors only. No identity recognition is available yet.
   aiStatus.textContent =
-    faceDetector && personDetector ? "DETECTION ONLY" : "PARTIAL";
+    faceDetector && hasPersonDetection() ? "DETECTION ONLY" : "PARTIAL";
 
   return {
     face: Boolean(faceDetector),
-    person: Boolean(personDetector)
+    person: hasPersonDetection()
   };
 }
 
 export function startOwnerAI() {
 
-  if (!faceDetector && !personDetector) {
+  if (!faceDetector && !hasPersonDetection()) {
     throw new Error("AI detectors are not initialized.");
   }
 
@@ -1802,7 +1886,7 @@ export function selectPersonAt(x, y) {
 
   if (!running) return { ok: false, reason: "NOT_RUNNING" };
 
-  if (!personDetector) return { ok: false, reason: "NO_PERSON_DETECTOR" };
+  if (!hasPersonDetection()) return { ok: false, reason: "NO_PERSON_DETECTOR" };
 
   const result = tracker.selectAt(x, y, lastFrameTimestamp);
 
@@ -1864,9 +1948,11 @@ export function disposeOwnerAI() {
 
   try { faceDetector?.close(); } catch (e) { console.error(e); }
   try { personDetector?.close(); } catch (e) { console.error(e); }
+  try { personWorker?.stop(); } catch (e) { console.error(e); }
 
   faceDetector = null;
   personDetector = null;
+  personWorker = null;
   initPromise = null;
 
   setReady(readyPerson, "NOT LOADED", "");
@@ -1987,6 +2073,102 @@ function renderOverlay(now) {
   drawPersons(now);
 }
 
+/*
+ * Everything that follows a person detection, for BOTH detectors (main thread and worker).
+ * `timestamp` is the time of the FRAME the detections were computed from (never the time the result
+ * arrived): the tracker and the motion decision use it as the detection time, so a result that took
+ * 250 ms in a worker is correctly 250 ms old.
+ */
+function applyPersonDetections(detections, timestamp, width, height, inferMs, latencyMs = null) {
+
+  inferenceSamples.push({ at: timestamp, ms: inferMs });
+  while (inferenceSamples.length && timestamp - inferenceSamples[0].at > MISS_WINDOW_MS) {
+    inferenceSamples.shift();
+  }
+
+  const persons = [];
+
+  for (const detection of detections) {
+
+    const category = detection.categories?.find(
+      item => item.categoryName === "person"
+    );
+
+    if (category && detection.boundingBox) {
+      persons.push({
+        box: detection.boundingBox,
+        score: category.score ?? 0
+      });
+    }
+  }
+
+  // Only needed while a box is selected (the tracker uses it only when
+  // that box is missing), so the thumbnail is not read otherwise.
+  const blocked =
+    tracker.getSnapshot().selectedId !== null
+      ? looksBlockedThrottled(timestamp)
+      : false;
+
+  tracker.update(persons, timestamp, width, height, { blocked });
+
+  const missTarget = tracker.getTarget();
+  if (missTarget && !missTarget.matched) selectedMissTimes.push(timestamp);
+  while (selectedMissTimes.length && timestamp - selectedMissTimes[0] > MISS_WINDOW_MS) {
+    selectedMissTimes.shift();
+  }
+
+  lastPersonBoxes = persons.map(p => p.box);
+  lastPersonAt = timestamp;
+
+  personStatus.textContent =
+    `${persons.length} PERSON(S)` +
+    (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
+    (personDelegate ? ` · ${personDelegate}` : "") +
+    (libLabel ? ` · LIB ${libLabel}` : "") +
+    (inferenceSamples.length ? ` · INF ${inferenceStats()}` : "") +
+    (latencyMs !== null ? ` · LAT ${Math.round(latencyMs)} ms` : "") +
+    (inferenceIsSlow() ? " · เครื่องช้า/ร้อน" : "") +
+    (tracker.getSnapshot().selectedId !== null ? ` · MISS ${selectedMissTimes.length}/60s` : "");
+}
+
+/* Sends the current frame to the person worker; the answer is applied when it arrives. */
+function requestWorkerPersons(timestamp, width, height) {
+
+  const worker = personWorker;
+  const request = worker.detect(video, timestamp);
+
+  if (request === null) return;               // busy or not ready: the next frame tries again
+
+  if (lastPersonInference > 0) personGapMs = timestamp - lastPersonInference;
+  lastPersonInference = timestamp;
+
+  request
+    .then(result => {
+
+      // Stopped, or switched back to the main thread while waiting: this answer is no longer wanted.
+      if (!running || personWorker !== worker) return;
+
+      applyPersonDetections(
+        result.detections,
+        result.timestamp,                      // the frame's time = the detection time
+        width,
+        height,
+        result.inferMs,
+        performance.now() - result.timestamp   // capture -> result applied
+      );
+
+      // What processFrame() does after a main-thread detection.
+      ownerAfterPersons(lastFrameTimestamp, width, height);
+      ownerStatus.textContent = ownerStatusText();
+      notifyTracking();
+    })
+    .catch(error => {
+      // One frame lost (bitmap or detection error). Repeated failures make the client fail, which
+      // switches to the main-thread detector (handlePersonWorkerFailure).
+      console.warn("[worker] frame skipped:", error?.message ?? error);
+    });
+}
+
 function processFrame(timestamp) {
 
   if (!running) return;
@@ -2076,7 +2258,15 @@ function processFrame(timestamp) {
       serveCropRequest(faceList, timestamp, width, height);
     }
 
-    if (
+    if (personWorker) {
+
+      // Worker detector: the frame is copied and sent without blocking; the result comes back
+      // later through requestWorkerPersons(). One detection in flight at a time.
+      if (!personWorker.busy() && timestamp - lastPersonInference >= personIntervalMs()) {
+        requestWorkerPersons(timestamp, width, height);
+      }
+
+    } else if (
       personDetector &&
       timestamp - lastPersonInference >= personIntervalMs()
     ) {
@@ -2091,53 +2281,13 @@ function processFrame(timestamp) {
         timestamp
       );
 
-      inferenceSamples.push({ at: timestamp, ms: performance.now() - inferenceStart });
-      while (inferenceSamples.length && timestamp - inferenceSamples[0].at > MISS_WINDOW_MS) {
-        inferenceSamples.shift();
-      }
-
-      const persons = [];
-
-      for (const detection of people.detections || []) {
-
-        const category = detection.categories?.find(
-          item => item.categoryName === "person"
-        );
-
-        if (category && detection.boundingBox) {
-          persons.push({
-            box: detection.boundingBox,
-            score: category.score ?? 0
-          });
-        }
-      }
-
-      // Only needed while a box is selected (the tracker uses it only when
-      // that box is missing), so the thumbnail is not read otherwise.
-      const blocked =
-        tracker.getSnapshot().selectedId !== null
-          ? looksBlockedThrottled(timestamp)
-          : false;
-
-      tracker.update(persons, timestamp, width, height, { blocked });
-
-      const missTarget = tracker.getTarget();
-      if (missTarget && !missTarget.matched) selectedMissTimes.push(timestamp);
-      while (selectedMissTimes.length && timestamp - selectedMissTimes[0] > MISS_WINDOW_MS) {
-        selectedMissTimes.shift();
-      }
-
-      lastPersonBoxes = persons.map(p => p.box);
-      lastPersonAt = timestamp;
-
-      personStatus.textContent =
-        `${persons.length} PERSON(S)` +
-        (personGapMs !== null ? ` · ${Math.round(personGapMs)} ms` : "") +
-        (personDelegate ? ` · ${personDelegate}` : "") +
-        (libLabel ? ` · LIB ${libLabel}` : "") +
-        (inferenceSamples.length ? ` · INF ${inferenceStats()}` : "") +
-        (inferenceIsSlow() ? " · เครื่องช้า/ร้อน" : "") +
-        (tracker.getSnapshot().selectedId !== null ? ` · MISS ${selectedMissTimes.length}/60s` : "");
+      applyPersonDetections(
+        people.detections || [],
+        timestamp,
+        width,
+        height,
+        performance.now() - inferenceStart
+      );
     }
 
     tracker.tick(timestamp);

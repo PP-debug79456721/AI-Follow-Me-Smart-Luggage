@@ -46,6 +46,20 @@ export function reidIntervalsFor({ lite, following, learnMs, searchMs }) {
   };
 }
 
+/*
+ * Run the person detector in a Web Worker (js/person-worker.js) so the main thread stays free for the
+ * ESP32 link.  ?worker=1 on, ?worker=0 off.  With neither, WORKER_DEFAULT_IN_LITE decides for phones
+ * (lite mode); it stays false until the worker path has been tried on a real phone.
+ */
+export const WORKER_DEFAULT_IN_LITE = false;
+
+export function workerModeFor(search = "", lite = false, defaultInLite = WORKER_DEFAULT_IN_LITE) {
+  const value = new URLSearchParams(search).get("worker");
+  if (value === "1") return true;
+  if (value === "0") return false;
+  return Boolean(lite && defaultInLite);
+}
+
 export const LITE_MODE = detectLiteMode(
   typeof location !== "undefined" ? location.search : "",
   typeof navigator !== "undefined" ? navigator : {}

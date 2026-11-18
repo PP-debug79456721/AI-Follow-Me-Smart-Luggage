@@ -10,7 +10,7 @@
  */
 
 function failIfAsked(kind) {
-  if (window.__fakeFail?.[kind]) {
+  if (typeof window !== "undefined" && window.__fakeFail?.[kind]) {
     throw new Error(`fake: ${kind} model download failed`);
   }
 }
@@ -27,11 +27,29 @@ export class FaceDetector {
   close() {}
 }
 
+// Inside a Web Worker there is no `window`: the worker always sees one fixed person and spends
+// 250 ms per detection (stands in for a heavy inference). On the page, window.__busyMs does the same.
+const WORKER_BOX = { originX: 270, originY: 100, width: 100, height: 250 };
+
+function busyWait(ms) {
+  const start = performance.now();
+  while (performance.now() - start < ms) { /* spin */ }
+}
+
+function currentPersons() {
+  if (typeof window === "undefined") {
+    busyWait(250);
+    return [WORKER_BOX];
+  }
+  if (window.__busyMs) busyWait(window.__busyMs);
+  return window.__persons || [];
+}
+
 export class ObjectDetector {
   static async createFromOptions() { failIfAsked("person"); return new ObjectDetector(); }
   detectForVideo() {
     return {
-      detections: (window.__persons || []).map(box => ({
+      detections: currentPersons().map(box => ({
         boundingBox: { ...box },
         categories: [{ categoryName: "person", score: 0.9 }]
       }))
