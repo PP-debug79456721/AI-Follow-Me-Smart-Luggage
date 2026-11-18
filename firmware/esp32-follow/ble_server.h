@@ -96,6 +96,13 @@ class BleServer : public Channel {
   uint32_t connects() const { return connects_; }
   uint32_t connParamRequests() const { return connParamRequests_; }
 
+  // ATT MTU negotiated with the connected phone (23 = never negotiated, notifications are then cut into
+  // 20-byte pieces), 0 when nobody is connected. Same call sendText() uses to size its notifications.
+  unsigned peerMtu() const {
+    if (!started_ || !connected_ || server_ == nullptr) return 0;
+    return server_->getPeerMTU(server_->getConnId());
+  }
+
   // Channel: one JSON message as a line, cut into notifications. A message that cannot be sent in
   // full is counted as dropped (the app treats a missing reply as a timeout and stops).
   bool sendText(const char* json, size_t length) override {

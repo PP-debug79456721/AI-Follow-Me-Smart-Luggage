@@ -177,7 +177,7 @@ before Upload. Small changes are safer made inside the IDE.
   session/link/protocol are unchanged; tests/ble-socket.test.mjs uses a FAKE Bluetooth device. **Never tried on a real phone/board.**
   The chooser needs a user gesture (the CONNECT click); the chosen device is kept for reconnects, a page reload forgets it.
   Android Chrome only (no iPhone). Also testable with nRF Connect.
-  Serial status adds `wifi=<status code>` and `ble=<connected>/<connects> blereq=<n> bledrop=<in>/<out>`.
+  Serial status adds `wifi=<status code>` and `ble=<connected>/<connects> blereq=<n> blemtu=<n> bledrop=<in>/<out>` (`blemtu` 23 = MTU never negotiated: replies go out in 20-byte pieces).
   **BLE RTT (2026-11-18)**: measured 100-300 ms, 60-291 ms with Wi-Fi off. Camera on/off and `?chunk=` made no difference.
   Firmware now asks the phone for a 15-30 ms connection interval right after connecting (`kBleMinInterval/kBleMaxInterval/
   kBleLatency/kBleSupervisionTimeout`, `blereq` counts requests; the phone may refuse) and `kEnableWifi` defaults to false
