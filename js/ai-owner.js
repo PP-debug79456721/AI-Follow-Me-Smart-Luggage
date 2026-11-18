@@ -1415,6 +1415,28 @@ function reidSearch(timestamp) {
 
 let ownerLastClothScore = NaN;   // best clothes score of the last Re-ID search round (display only)
 
+const asPercent = value => `${Math.round(value * 100)}%`;
+
+/*
+ * While nobody is followed: what the owner search is doing and the scores it sees, so a failed search
+ * explains itself ("no people in view", "paused", scores below the thresholds). "" while following.
+ */
+function searchProgressText() {
+  if (followingSomeone() || !OWNER_HOST) return "";
+  if (ownerAutoPaused) return "";                                     // already says "หยุดหาอัตโนมัติ"
+  if (reidReadyCache && reidAlbum.length > 0) {
+    if (lastPersonBoxes.length === 0) return "ค้นหา: ไม่เห็นคนในภาพ";
+    if (!Number.isFinite(ownerLastScore)) return "ค้นหา: กำลังคำนวณ…";
+    const cloth = Number.isFinite(ownerLastClothScore) ? ` · เสื้อ ${asPercent(ownerLastClothScore)} (${ownerLastClothScore.toFixed(2)})` : "";
+    return `ค้นหา Re-ID ${asPercent(ownerLastScore)} (${ownerLastScore.toFixed(2)})${cloth}`;
+  }
+  if (ownerAlbum.length > 0) {
+    if (lastPersonBoxes.length === 0) return "ค้นหา: ไม่เห็นคนในภาพ";
+    return Number.isFinite(ownerLastScore) ? `ค้นหาจากเสื้อ ${asPercent(ownerLastScore)} (${ownerLastScore.toFixed(2)})` : "ค้นหา: กำลังคำนวณ…";
+  }
+  return "";
+}
+
 function ownerStatusText() {
   if (!OWNER_HOST) return UNVERIFIED_TEXT;
   if (enrolRemaining > 0) return `กำลังลงทะเบียนหน้า… เหลือ ${enrolRemaining}`;
@@ -1436,10 +1458,9 @@ function ownerStatusText() {
   if (ownerAutoPaused) parts.push("หยุดหาอัตโนมัติ");
   if (!LEARN_ENABLED) parts.push("ไม่เรียนรู้อัตโนมัติ (learn=0)");
   else if (followingSomeone() && !followedLearnAllowed()) parts.push("รอยืนยันตัวตนก่อนเรียนรู้");
-  const clothNote = !followingSomeone() && Number.isFinite(ownerLastClothScore) && Number.isFinite(ownerLastScore)
-    ? ` (เสื้อ ${ownerLastClothScore.toFixed(2)})` : "";
-  if (ownerLastEvent) parts.push(ownerLastEvent + score + clothNote);
-  else if (clothNote && reidReadyCache) parts.push(`ค้นหา Re-ID${score}${clothNote}`);   // the scores while searching
+  const searchText = searchProgressText();
+  if (ownerLastEvent) parts.push(searchText ? ownerLastEvent : ownerLastEvent + score);
+  if (searchText) parts.push(searchText);
   return parts.join(" · ");
 }
 
