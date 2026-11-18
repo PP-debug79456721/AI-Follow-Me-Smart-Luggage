@@ -680,6 +680,11 @@ function loadEmbeddingModels() {
       // Show the final state of the models this page uses.
       for (const key of RECOGNITION_MODEL_KEYS) showModelStatus(key, result[key]);
 
+      // Re-ID re-acquire may run as soon as its model is loaded. Before this,
+      // the flag was set only while learning during TRACKING, so after a page
+      // load the owner was re-acquired from clothing colours alone.
+      if (REID_FEATURES) reidReadyCache = result.reid?.state === "SESSION_LOADED";
+
       // Allow a retry on the next start when a wanted model failed.
       if (RECOGNITION_MODEL_KEYS.some(key => result[key].state !== "SESSION_LOADED")) {
         embeddingPromise = null;
@@ -896,11 +901,17 @@ function saveProfileMeta() {
   try { localStorage.setItem(PROFILE_STORE, JSON.stringify(profileMeta)); } catch { /* storage full/blocked */ }
 }
 let profileMeta = loadProfileMeta();
-let otherProfiles = [];          // [{ index, name, faces, reid, cloth }] of the NON-active profiles
+let otherProfiles = [];          // [{ index, name, faces, reid, cloth }] of the NON-active profiles (cloth = album)
 let otherProfileLabels = [];     // [{ box, name, at }] faces/bodies recognised as a non-active profile
 let lockedSelectionId = null;    // tracker id chosen by owner recognition for the active profile
 let lockedProfile = -1;
 let lockedHow = "";             // "Re-ID" | "ใบหน้า" | "เสื้อผ้า": what recognised the locked box
+// A clothing-only lock is upgraded to "Re-ID" after LABEL_UPGRADE_HITS
+// consecutive Re-ID checks of the locked box pass. The Re-ID album is
+// snapshotted at lock time so views learned from this box cannot confirm it.
+const LABEL_UPGRADE_HITS = 3;
+let lockedReidBaseline = [];
+let lockedUpgradeHits = 0;
 
 let ownerFaces = loadOwnerFaces();
 let ownerAlbum = loadClothAlbum();       // [view0 (REMEMBER CLOTHES), learned views...]
@@ -1019,7 +1030,7 @@ function refreshOtherProfiles() {
     if (i === profileMeta.active) continue;
     otherProfiles.push({
       index: i, name: profileMeta.names[i],
-      faces: loadOwnerFaces(i), reid: loadReidAlbum(i), cloth: loadClothAlbum(i).length
+      faces: loadOwnerFaces(i), reid: loadReidAlbum(i), cloth: loadClothAlbum(i)
     });
   }
 }
@@ -1106,6 +1117,7 @@ function reidLearn(timestamp, box, force = false, reset = false) {
         return;
       }
       reidScore = vectorAlbumScore(reidAlbum, v);
+      checkLabelUpgrade(v);
       const canAdd = timestamp - lastReidAddAt >= CLOTH_ADD_GAP_MS;
       const r = learnIntoVectorAlbum(reidAlbum, v,
         canAdd ? {} : { newViewAbove: REID_ALBUM_DEFAULTS.sameViewAbove });
@@ -1118,6 +1130,31 @@ function reidLearn(timestamp, box, force = false, reset = false) {
       reidBusy = false;
     }
   })();
+}
+
+/*
+ * Label only: a box locked by clothing colours becomes "จำได้จาก Re-ID" after
+ * LABEL_UPGRADE_HITS consecutive checks where the box matches the Re-ID album
+ * as it was at lock time and does not look more like another registered user.
+ * One failed check restarts the count. Selection and motor commands are not
+ * affected.
+ */
+function checkLabelUpgrade(v) {
+  if (lockedHow !== "เสื้อผ้า" || lockedProfile !== profileMeta.active) return;
+  const target = tracker.getTarget();
+  if (!target || target.id !== lockedSelectionId || !target.matched) return;
+  if (lockedReidBaseline.length === 0) return;
+
+  const own = vectorAlbumScore(lockedReidBaseline, v);
+  const other = bestOtherProfile(p => p.reid.length ? vectorAlbumScore(p.reid, v) : NaN);
+  const pass = own >= RECOGNIZER_DEFAULTS.reidThreshold &&
+    !looksLikeOtherProfile(own, other, RECOGNIZER_DEFAULTS.reidThreshold);
+
+  lockedUpgradeHits = pass ? lockedUpgradeHits + 1 : 0;
+  if (lockedUpgradeHits >= LABEL_UPGRADE_HITS) {
+    lockedHow = "Re-ID";
+    ownerLastEvent = "ยืนยันตัวตนด้วย Re-ID แล้ว";
+  }
 }
 
 /* Re-acquire with Re-ID: score up to 3 person boxes of THIS detection round. */
@@ -1205,6 +1242,8 @@ function autoSelect(b, how) {
     lockedSelectionId = result.id;
     lockedProfile = profileMeta.active;
     lockedHow = how.includes("Re-ID") ? "Re-ID" : how.includes("ใบหน้า") ? "ใบหน้า" : "เสื้อผ้า";
+    lockedReidBaseline = reidAlbum.slice();
+    lockedUpgradeHits = 0;
     ownerLastEvent = how;
     resetOwnerAgreements();
     notifyTracking(true);
@@ -1305,10 +1344,18 @@ function ownerAfterPersons(timestamp) {
   // Re-acquire from behind (clothing), only after this session followed the owner.
   if (ownerAutoPaused || ownerAlbum.length === 0 || lastPersonBoxes.length === 0) return;
 
-  const candidates = lastPersonBoxes.slice(0, 4).map(b => ({
-    box: b,
-    score: albumScore(ownerAlbum, signatureOf(b))
-  }));
+  // Same rule as face and Re-ID: a person whose clothes look at least as much
+  // like another registered user's is never chosen.
+  const candidates = lastPersonBoxes.slice(0, 4).map(b => {
+    const sig = signatureOf(b);
+    const own = albumScore(ownerAlbum, sig);
+    const other = sig ? bestOtherProfile(p => p.cloth.length ? albumScore(p.cloth, sig) : NaN) : null;
+    if (looksLikeOtherProfile(own, other, RECOGNIZER_DEFAULTS.clothThreshold)) {
+      noteOtherProfile(b, other.name, timestamp);
+      return { box: b, score: NaN };
+    }
+    return { box: b, score: own };
+  });
   const best = Math.max(...candidates.map(c => c.score).filter(Number.isFinite));
   if (Number.isFinite(best)) ownerLastScore = best;
   const agreed = clothAgreement.push(candidates);
@@ -1489,7 +1536,7 @@ export function getOwnerProfiles() {
       return { index: i, name, active: true, faces: ownerFaces.length, reid: reidAlbum.length, cloth: ownerAlbum.length };
     }
     const p = otherProfiles.find(o => o.index === i);
-    return { index: i, name, active: false, faces: p?.faces.length ?? 0, reid: p?.reid.length ?? 0, cloth: p?.cloth ?? 0 };
+    return { index: i, name, active: false, faces: p?.faces.length ?? 0, reid: p?.reid.length ?? 0, cloth: p?.cloth.length ?? 0 };
   });
 }
 
