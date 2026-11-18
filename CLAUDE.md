@@ -222,6 +222,8 @@ before Upload. Small changes are safer made inside the IDE.
   never out of the frame). `ai-owner.js publishMotion` feeds the decision with it; `lastSeenMs` stays the real detection time, so the
   link's age checks are unchanged. Unit tests PR1-PR7 in `tests/person-tracker.test.mjs`. NOT yet tried on the bench: if the luggage
   overshoots turns or oscillates, open the page with `?predict=0` to compare.
+- **Low-fps hint (2026-11-18)**: `js/fps-hint.js` (tests/fps-hint.test.mjs): after 5 one-second readings below 10 fps the camera overlay
+  shows `<n> FPS · ต่ำ: แสงน้อย/เครื่องหนัก` (clears at >= 12). It only explains; a phone lowers the camera rate in dim light by itself.
 - **Fixed IP (2026-11-18)**: `kUseStaticIp = true`, `kStaticIp {192,168,137,50}`. The board always connects with DHCP first and
   switches to `kStaticIp` ONLY if the lease is in the same subnet (gateway and mask taken from the lease); otherwise it stays
   on DHCP and prints `static IP skipped: this network is ...`. So the page URL `ws://192.168.137.50:81/ws` is stable on the

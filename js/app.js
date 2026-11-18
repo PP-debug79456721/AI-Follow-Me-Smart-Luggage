@@ -19,6 +19,7 @@ import {
 } from "./ai-owner.js";
 import { createEsp32Session } from "./esp32-session.js";
 import { LITE_MODE } from "./lite-mode.js";
+import { createFpsHint } from "./fps-hint.js";
 import { createMotionSmoother } from "./motion-smoother.js";
 import { createMockDeviceNetwork } from "./mock-socket.js";
 import { createBleSocketFactory } from "./ble-socket.js";
@@ -59,6 +60,8 @@ function showCameraLabel(settings) {
   setStatus("cameraType", `Camera: ${label ?? "--"}`);
 }
 
+const fpsHint = createFpsHint();
+
 // FPS comes from real camera frames (camera.js). null = the browser
 // cannot measure it, so "--" is shown instead of a guess.
 onFpsUpdate(fps => {
@@ -70,11 +73,14 @@ onFpsUpdate(fps => {
   }
 
   if (fps === null) {
+    fpsHint.reset();
     setStatus("fpsValue", "-- FPS");
     return;
   }
 
-  setStatus("fpsValue", `${fps.toFixed(1)} FPS`);
+  // A phone lowers the camera rate in dim light by itself: say so instead of leaving it a mystery.
+  const hint = fpsHint.push(fps);
+  setStatus("fpsValue", `${fps.toFixed(1)} FPS${hint ? ` · ${hint}` : ""}`);
 
   // Connected but no new frame in the last second.
   if (video.srcObject) {
@@ -91,6 +97,7 @@ function resetToStopped({ cameraStatus, systemStatus }) {
   smoother.reset();
   session.setDecision("STOP", null);
 
+  fpsHint.reset();
   setStatus("fpsValue", "0 FPS");
   setStatus("cameraStatus", cameraStatus);
   setStatus("resolution", "Resolution: --");
