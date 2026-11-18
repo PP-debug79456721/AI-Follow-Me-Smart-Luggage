@@ -8,9 +8,25 @@
 class BLEServer;
 class BLECharacteristic;
 
+typedef int esp_err_t;
+#define ESP_OK 0
+typedef uint8_t esp_bd_addr_t[6];
+struct esp_ble_gatts_cb_param_t {
+  struct { esp_bd_addr_t remote_bda; } connect;
+};
+struct esp_ble_conn_update_params_t {
+  esp_bd_addr_t bda;
+  uint16_t min_int;
+  uint16_t max_int;
+  uint16_t latency;
+  uint16_t timeout;
+};
+inline esp_err_t esp_ble_gap_update_conn_params(esp_ble_conn_update_params_t*) { return ESP_OK; }
+
 struct BLEServerCallbacks {
   virtual ~BLEServerCallbacks() {}
   virtual void onConnect(BLEServer*) {}
+  virtual void onConnect(BLEServer*, esp_ble_gatts_cb_param_t*) {}
   virtual void onDisconnect(BLEServer*) {}
 };
 

@@ -166,7 +166,12 @@ before Upload. Small changes are safer made inside the IDE.
   session/link/protocol are unchanged; tests/ble-socket.test.mjs uses a FAKE Bluetooth device. **Never tried on a real phone/board.**
   The chooser needs a user gesture (the CONNECT click); the chosen device is kept for reconnects, a page reload forgets it.
   Android Chrome only (no iPhone). Also testable with nRF Connect.
-  Serial status adds `wifi=<status code>` and `ble=<connected>/<connects> bledrop=<in>/<out>`.
+  Serial status adds `wifi=<status code>` and `ble=<connected>/<connects> blereq=<n> bledrop=<in>/<out>`.
+  **BLE RTT (2026-11-18)**: measured 100-300 ms, 60-291 ms with Wi-Fi off. Camera on/off and `?chunk=` made no difference.
+  Firmware now asks the phone for a 15-30 ms connection interval right after connecting (`kBleMinInterval/kBleMaxInterval/
+  kBleLatency/kBleSupervisionTimeout`, `blereq` counts requests; the phone may refuse) and `kEnableWifi` defaults to false
+  (its endless scanning shares the radio). The link's RTT gate (`rttGateMs` 300, max of the last 3 samples, esp32-link.js)
+  was NOT changed: BLE peaks near 300 ms can trigger `RTT_GATE` STOPs. Not yet measured after the connection-interval change.
 - `sonar_sources.h` (new): HC-SR04 source and a "no sensor" source (no obstacle protection).
 - `ws_server.h`: all writes are non-blocking (`send(MSG_DONTWAIT)`). The core's `WiFiClient::write`
   can block ~10 s and caused loop stalls, link timeouts and a task-watchdog reset.

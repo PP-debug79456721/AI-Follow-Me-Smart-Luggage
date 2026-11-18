@@ -94,6 +94,7 @@ class BleServer : public Channel {
   uint32_t droppedIn() const { return queue_.dropped() + assembler_.overflows(); }
   uint32_t droppedOut() const { return droppedOut_; }
   uint32_t connects() const { return connects_; }
+  uint32_t connParamRequests() const { return connParamRequests_; }
 
   // Channel: one JSON message as a line, cut into notifications. A message that cannot be sent in
   // full is counted as dropped (the app treats a missing reply as a timeout and stops).
@@ -116,6 +117,17 @@ class BleServer : public Channel {
   }
 
  private:
+  // Asks the phone for a short connection interval (config.h). Runs in the BLE task.
+  void requestFastConnection(const uint8_t* address) {
+    esp_ble_conn_update_params_t params = {};
+    memcpy(params.bda, address, sizeof(params.bda));
+    params.min_int = kBleMinInterval;
+    params.max_int = kBleMaxInterval;
+    params.latency = kBleLatency;
+    params.timeout = kBleSupervisionTimeout;
+    if (esp_ble_gap_update_conn_params(&params) == ESP_OK) connParamRequests_ += 1;
+  }
+
   struct PortMuxLock {
     portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
     void lock() { portENTER_CRITICAL(&mux); }
@@ -129,6 +141,11 @@ class BleServer : public Channel {
       owner_.queue_.clear();
       owner_.connected_ = true;
       owner_.connects_ += 1;
+    }
+    // The core's second overload, which also carries the connection (and the phone's address).
+    // Deliberately NO `override`: on a core without it this is only an unused method.
+    void onConnect(BLEServer*, esp_ble_gatts_cb_param_t* param) {
+      if (param != nullptr) owner_.requestFastConnection(param->connect.remote_bda);
     }
     void onDisconnect(BLEServer*) override {
       owner_.connected_ = false;
@@ -158,6 +175,7 @@ class BleServer : public Channel {
   volatile bool connected_ = false;
   volatile bool disconnectPending_ = false;
   volatile uint32_t connects_ = 0;
+  volatile uint32_t connParamRequests_ = 0;
   uint32_t droppedOut_ = 0;
   bool started_ = false;
 };

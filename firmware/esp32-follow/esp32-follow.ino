@@ -349,6 +349,8 @@ void loop() {
         Serial.print(bleServer.connected() ? 1 : 0);
         Serial.print("/");
         Serial.print(bleServer.connects());
+        Serial.print(" blereq=");
+        Serial.print(bleServer.connParamRequests());
         Serial.print(" bledrop=");
         Serial.print(bleServer.droppedIn());
         Serial.print("/");
