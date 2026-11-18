@@ -1,0 +1,2 @@
+# Firmware sources are hashed by tests (fixtures/*.sha256.json): keep LF on every OS.
+firmware/** text eol=lf

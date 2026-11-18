@@ -196,30 +196,37 @@ function sha256(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+// Local, git-ignored files that may sit beside the sketch and are not Demo sources.
+const DEMO_LOCAL_ONLY = new Set(["wifi_secrets.h"]);
+
 test("MT7 Demo sources are byte-identical to the recorded fixture (no file added, removed or changed)", () => {
   const lock = JSON.parse(readFileSync(FIXTURE, "utf8")).files;
   const actual = {};
-  for (const file of walk(DEMO, (f) => !/pastedcontent/.test(path.basename(f)))) {
+  const isLocalOnly = (f) => path.dirname(f) === DEMO && DEMO_LOCAL_ONLY.has(path.basename(f));
+  for (const file of walk(DEMO, (f) => !/pastedcontent/.test(path.basename(f)) && !isLocalOnly(f))) {
     actual[path.relative(DEMO, file).split(path.sep).join("/")] = sha256(file);
   }
   assert.deepEqual(Object.keys(actual).sort(), Object.keys(lock).sort(), "the Demo file set changed");
   for (const [name, hash] of Object.entries(lock)) assert.equal(actual[name], hash, `Demo file changed: ${name}`);
 });
 
-test("MT8 the Demo keeps its locks and never references the Motor Test", () => {
+test("MT8 the Demo (phase 2) drives only BtsMotorHal, touches pins only in its driver and sonar, never references the Motor Test", () => {
   const hal = readFileSync(path.join(DEMO, "motor_hal.h"), "utf8");
   assert.match(hal, /class LockedMotorHal : public MotorHal/);
   assert.match(hal, /kPhysicalOutputEnabled = false/);
   assert.match(hal, /static_assert\(!LockedMotorHal::kPhysicalOutputEnabled/);
   assert.match(readFileSync(path.join(DEMO, "config.h"), "utf8"), /constexpr bool kPinsVerified = false;/);
-  assert.match(stripComments(readFileSync(path.join(DEMO, "esp32-follow.ino"), "utf8")), /LockedMotorHal hal;/);
+  assert.match(stripComments(readFileSync(path.join(DEMO, "esp32-follow.ino"), "utf8")), /BtsMotorHal hal;/);
 
+  // Phase 2: pin calls are allowed only in the Demo's own driver and sonar sources (top level).
+  const pinFiles = new Set(["bts_motor_hal.h", "sonar_sources.h"]);
   const forbiddenCalls = /\b(pinMode|digitalWrite|digitalRead|analogWrite|analogRead|ledcSetup|ledcAttach|ledcAttachPin|ledcWrite|gpio_[a-z_]+|dacWrite|pulseIn|attachInterrupt)\s*\(/;
   for (const file of walk(DEMO, (f) => /\.(h|ino|cpp|c)$/.test(f))) {
     if (file.includes(`${path.sep}host${path.sep}`)) continue;
     const code = stripComments(readFileSync(file, "utf8"));
     const name = path.relative(DEMO, file);
-    assert.equal(forbiddenCalls.test(code), false, `${name} uses a pin API`);
+    const pinsAllowed = path.dirname(file) === DEMO && pinFiles.has(path.basename(file));
+    if (!pinsAllowed) assert.equal(forbiddenCalls.test(code), false, `${name} uses a pin API`);
     assert.equal(/esp32-motor-test|motor_test_config|bench_(session|interlock|driver)|\bmt::/.test(readFileSync(file, "utf8")), false,
       `${name} references the Motor Test`);
     assert.equal(/#\s*(if|ifdef|ifndef)\s+\w*(MOTOR_TEST|BENCH|ENABLE_MOTOR|UNLOCK)\w*/i.test(code), false,

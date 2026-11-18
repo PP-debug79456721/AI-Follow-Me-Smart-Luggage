@@ -7,9 +7,10 @@
  *    motor HAL plan, WebSocket handshake and frame codec.
  * 2. Syntax-checks esp32-follow.ino and ws_server.h against HOST STUBS of the Arduino
  *    headers. That is NOT a build with the real ESP32 toolchain.
- * 3. Static checks of the hardware output lock: no GPIO, PWM or pin API anywhere in the
- *    firmware sources, one MotorHal implementation (locked), one writer (the kernel), pins
- *    still marked UNVERIFIED, no credentials file committed.
+ * 3. Static checks of the PHASE 2 output rules (motor output enabled through BtsMotorHal):
+ *    pin APIs only in the motor driver and the sonar sources, one writer (the kernel), the
+ *    sketch drives only BtsMotorHal and latches every output LOW first, duty limits and the
+ *    driver's stop/fault paths, pins not declared verified, no credentials file committed.
  *
  * Needs a host C++ compiler for 1 and 2 (skipped without one). Installs nothing.
  * Nothing here runs on an ESP32 or proves real-board behavior.
@@ -78,30 +79,51 @@ function stripComments(text) {
     .replace(/\/\/.*$/gm, "");
 }
 
-test("F3 hardware output lock: no GPIO, PWM, ADC or pin API appears anywhere in the firmware sources", () => {
-  const forbidden = /\b(pinMode|digitalWrite|digitalRead|analogWrite|analogRead|ledcSetup|ledcAttach|ledcAttachPin|ledcWrite|ledcDetach|gpio_[a-z_]+|dacWrite|pulseIn|attachInterrupt|touchRead|mcpwm_[a-z_]+|rmt_[a-z_]+)\s*\(/;
+// Pin, PWM and ADC calls. PHASE 2: allowed ONLY in the motor driver and the sonar sources.
+const PIN_API = /\b(pinMode|digitalWrite|digitalRead|analogWrite|analogRead|ledcSetup|ledcAttach|ledcAttachPin|ledcWrite|ledcDetach|gpio_[a-z_]+|dacWrite|pulseIn|attachInterrupt|touchRead|mcpwm_[a-z_]+|rmt_[a-z_]+)\s*\(/;
+const PIN_API_FILES = ["bts_motor_hal.h", "sonar_sources.h"];
+
+function sourceOf(name) {
+  return stripComments(readFileSync(path.join(FIRMWARE, name), "utf8"));
+}
+
+/* Body of `signature { ... }` (brace matched), or null. */
+function bodyOf(code, signature) {
+  const start = code.indexOf(signature);
+  if (start < 0) return null;
+  const open = code.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < code.length; i += 1) {
+    if (code[i] === "{") depth += 1;
+    else if (code[i] === "}" && --depth === 0) return code.slice(open + 1, i);
+  }
+  return null;
+}
+
+test("F3 pin APIs appear only in the motor driver and the sonar sources (phase 2)", () => {
   const files = firmwareSources();
   assert.ok(files.length >= 8);
-  for (const file of files) {
-    const code = stripComments(readFileSync(file, "utf8"));
-    assert.equal(forbidden.test(code), false, `${path.basename(file)} uses a pin API`);
-  }
+  const users = files
+    .filter(file => PIN_API.test(stripComments(readFileSync(file, "utf8"))))
+    .map(file => path.basename(file))
+    .sort();
+  assert.deepEqual(users, PIN_API_FILES, "a new file touches pins: review it and update this list");
 });
 
-test("F4 one MotorHal implementation (locked), one writer (the safety kernel)", () => {
-  const files = firmwareSources();
-  let implementations = 0;
+test("F4 MotorHal implementations are LockedMotorHal and BtsMotorHal; one writer (the safety kernel)", () => {
+  const implementations = [];
   const writers = [];
 
-  for (const file of files) {
+  for (const file of firmwareSources()) {
     const code = stripComments(readFileSync(file, "utf8"));
-    implementations += (code.match(/:\s*public\s+MotorHal\b/g) ?? []).length;
+    for (const m of code.matchAll(/class\s+(\w+)\s*:\s*public\s+MotorHal\b/g)) implementations.push(m[1]);
     if (/\bhal\w*\s*\.\s*write\s*\(|\bhal\w*\s*->\s*write\s*\(/.test(code)) writers.push(path.basename(file));
   }
 
-  assert.equal(implementations, 1, "exactly one HAL implementation exists in this phase");
+  assert.deepEqual(implementations.sort(), ["BtsMotorHal", "LockedMotorHal"]);
   assert.deepEqual(writers, ["safety.h"], "only the safety kernel writes motor output");
 
+  // The phase-1 locked HAL is kept unchanged as the no-output fallback.
   const hal = readFileSync(path.join(FIRMWARE, "motor_hal.h"), "utf8");
   assert.match(hal, /class LockedMotorHal : public MotorHal/);
   assert.match(hal, /kPhysicalOutputEnabled = false/);
@@ -109,37 +131,85 @@ test("F4 one MotorHal implementation (locked), one writer (the safety kernel)", 
   assert.match(hal, /float dutyCap = 0;/, "the duty cap defaults to no output");
 });
 
-test("F5 no runtime or build switch can unlock the output; the sketch uses only the locked HAL", () => {
-  const sketch = stripComments(readFileSync(path.join(FIRMWARE, "esp32-follow.ino"), "utf8"));
-  assert.match(sketch, /LockedMotorHal hal;/);
-  assert.equal(/#\s*(if|ifdef|ifndef)\s+\w*(ENABLE|UNLOCK|MOTOR_OUTPUT|FORCE)\w*/i.test(sketch), false);
+test("F5 the sketch drives only BtsMotorHal, latches every output LOW first, and has no unlock switch", () => {
+  const sketch = sourceOf("esp32-follow.ino");
+  assert.equal((sketch.match(/\b\w*MotorHal\s+\w+\s*;/g) ?? []).join(), "BtsMotorHal hal;", "one HAL instance");
 
+  const setup = bodyOf(sketch, "void setup()");
+  assert.ok(setup, "setup() exists");
+  assert.match(setup.trim(), /^hal\.latchOutputsLow\(\);/, "the first statement of setup() latches outputs LOW");
+  assert.equal(PIN_API.test(sketch), false, "the sketch itself never touches pins");
+
+  assert.equal(/#\s*(if|ifdef|ifndef)\s+\w*(ENABLE|UNLOCK|MOTOR_OUTPUT|FORCE)\w*/i.test(sketch), false);
   for (const file of firmwareSources()) {
     const code = stripComments(readFileSync(file, "utf8"));
     assert.equal(/#\s*define\s+\w*(UNLOCK|ENABLE_MOTOR|MOTOR_ENABLE|FORCE_OUTPUT)\w*/i.test(code), false,
       `${path.basename(file)} defines an unlock switch`);
   }
 
-  // The protocol core offers no way to ask for physical output either.
-  const protocol = stripComments(readFileSync(path.join(FIRMWARE, "protocol.h"), "utf8"));
+  // The protocol core offers no way to reach the HAL.
+  const protocol = sourceOf("protocol.h");
   assert.equal(/MotorHal/.test(protocol), false, "the protocol core knows nothing about the HAL");
 });
 
-test("F6 every GPIO assignment is marked UNVERIFIED and the pins are not declared verified", () => {
+test("F6 pins are not declared verified; duty limits are bounded at compile time", () => {
   const config = readFileSync(path.join(FIRMWARE, "config.h"), "utf8");
   assert.match(config, /constexpr bool kPinsVerified = false;/);
-  for (const name of ["kLeftDriver", "kRightDriver", "kSonar"]) {
-    const line = config.split("\n").find(l => l.includes(`${name}`) && l.includes("constexpr"));
-    assert.ok(line, `${name} is declared`);
-    assert.match(line, /UNVERIFIED/, `${name} is marked UNVERIFIED`);
+  for (const name of ["kLeftDriver", "kRightDriver", "kRelayPin", "kSonar"]) {
+    assert.ok(config.split("\n").some(l => l.includes(name) && l.includes("constexpr")), `${name} is declared`);
   }
+  const sonar = config.split("\n").find(l => l.includes("kSonar") && l.includes("constexpr"));
+  assert.match(sonar, /UNVERIFIED/, "the ultrasonic pins are still marked UNVERIFIED");
+
+  const value = name => Number(new RegExp(`constexpr float ${name} = ([0-9.]+)f;`).exec(config)?.[1]);
+  const drive = value("kDriveDuty");
+  const max = value("kDutyMax");
+  assert.ok(drive > 0 && drive <= max && max <= 0.8, `kDriveDuty ${drive} <= kDutyMax ${max} <= 0.8`);
+  assert.match(config, /static_assert\(kDriveDuty > 0 && kDriveDuty <= kDutyMax/);
+  assert.match(config, /static_assert\(kDutyMax <= 0\.8f/);
 });
 
-test("F7 no credentials file is committed beside the sketch and the example is ignored by git", () => {
-  assert.equal(existsSync(path.join(FIRMWARE, "wifi_secrets.h")), false, "wifi_secrets.h must not exist in the repository");
+test("F6b BtsMotorHal: STOP and faults switch everything off; reverse pin written 0 first", () => {
+  const drv = sourceOf("bts_motor_hal.h");
+
+  const write = bodyOf(drv, "void write(Motor command) override");
+  assert.match(write, /^\s*if \(!ready_ \|\| fault_\) \{[^}]*allOff\(\);/, "not ready or faulted: all off before anything else");
+  assert.match(write, /command == Motor::Stop\)[\s\S]*stopDrives\(\);/, "STOP stops the drives");
+
+  const stop = bodyOf(drv, "void stopDrives()");
+  for (const pin of ["kLeftDriver.rpwm", "kLeftDriver.lpwm", "kRightDriver.rpwm", "kRightDriver.lpwm"]) {
+    assert.ok(stop.includes(`ledcWrite(${pin}, 0)`), `STOP sets ${pin} to 0`);
+  }
+  assert.ok(stop.includes("digitalWrite(kLeftDriver.en, LOW)") && stop.includes("digitalWrite(kRightDriver.en, LOW)"),
+    "STOP pulls both enables LOW");
+
+  const off = bodyOf(drv, "void allOff()");
+  assert.ok(off.includes("digitalWrite(kRelayPin, LOW)"), "all-off also drops the relay");
+
+  const apply = bodyOf(drv, "void applySide(const BtsPins& p, bool invert, float duty)");
+  assert.ok(apply.indexOf("ledcWrite(rev, 0)") >= 0 && apply.indexOf("ledcWrite(rev, 0)") < apply.indexOf("ledcWrite(fwd"),
+    "reverse pin is set to 0 before the forward pin");
+  assert.match(apply, /if \(!ok\) \{\s*fault_ = true;\s*allOff\(\);/, "a failed write latches a fault and switches off");
+
+  const service = bodyOf(drv, "void service()");
+  assert.match(service, /^\s*const uint32_t now = millis\(\);\s*if \(!ready_ \|\| fault_\) \{\s*allOff\(\);/,
+    "service() keeps everything off while not ready or faulted");
+});
+
+function gitTracked(relative) {
+  const r = spawnSync("git", ["ls-files", "--error-unmatch", relative], { cwd: path.join(HERE, ".."), encoding: "utf8" });
+  return r.status === 0;
+}
+
+test("F7 no credentials file is committed beside the sketch and the real one is ignored by git", () => {
+  // A local wifi_secrets.h is needed to build; it must never be tracked.
+  for (const name of ["wifi_secrets.h", "wifi_secrets"]) {
+    assert.equal(gitTracked(`firmware/esp32-follow/${name}`), false, `${name} must not be committed`);
+  }
   assert.ok(existsSync(path.join(FIRMWARE, "wifi_secrets.example.h")));
   const ignore = readFileSync(path.join(HERE, "..", ".gitignore"), "utf8");
   assert.match(ignore, /firmware\/esp32-follow\/wifi_secrets\.h/);
+  assert.match(ignore, /^firmware\/esp32-follow\/wifi_secrets$/m);
 });
 
 test("F8 the kernel keeps the protocol's timer order and the ultrasonic interlock stays outside Protocol v2", () => {
