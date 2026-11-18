@@ -134,7 +134,8 @@ test("P3 a worker script that cannot start falls back to the main-thread detecto
     await page.evaluate(() => { window.__persons = [{ originX: 270, originY: 100, width: 100, height: 250 }]; });
     await waitText(page, "personAIStatus", "t.includes('1 PERSON')", 10000);
     const status = await page.locator("#personAIStatus").innerText();
-    assert.doesNotMatch(status, /WORKER/);
+    assert.doesNotMatch(status, /· WORKER/);
+    assert.match(status, /MAIN \(worker unavailable\)/);            // the card says why there is no worker
     assert.equal(await page.locator("#readyPerson").innerText(), "READY");
   } finally { await context.close(); }
 });

@@ -929,6 +929,7 @@ async function loadDetectors() {
   // Person detection feeds the motion decision, so it must be fast (see
   // PERSON_INTERVAL). Opt-in (?worker=1): run it in a Web Worker so the main thread
   // stays free for the ESP32 link; any failure falls back to the main-thread detector.
+  let workerStartFailed = false;
   if (WORKER_MODE) {
     try {
       personWorker = await startPersonWorker(runtime);
@@ -937,12 +938,14 @@ async function loadDetectors() {
     } catch (workerError) {
       console.warn("[worker] person worker could not start, using the main thread:", workerError);
       personWorker = null;
+      workerStartFailed = true;
     }
   }
 
   if (!personWorker) {
     try {
       await createMainPersonDetectorWithFallback();
+      if (workerStartFailed) personDelegate = `${personDelegate} · MAIN (worker unavailable)`;
       setReady(readyPerson, "READY", "ok");
     } catch (error) {
       console.error("Person detector load error:", error);
